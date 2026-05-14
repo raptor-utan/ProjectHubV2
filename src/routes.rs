@@ -16,16 +16,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(service_worker)
         .service(service_worker_short)
         .service(
-            web::resource("/login")
-                .route(web::get().to(index_page))
-                .route(web::post().to(not_implemented)),
-        )
-        .service(
-            web::resource("/logout")
-                .route(web::get().to(logout))
-                .route(web::post().to(logout)),
-        )
-        .service(
             web::resource("/select/group")
                 .route(web::get().to(index_page))
                 .route(web::post().to(not_implemented))
