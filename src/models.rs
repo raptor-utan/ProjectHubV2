@@ -1,153 +1,76 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ProjectSnapshot {
-    #[serde(default)]
-    pub fetched_at: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub database_tables: Vec<String>,
-    #[serde(default)]
-    pub project_tables: Vec<String>,
-    #[serde(default)]
-    pub fetch_warnings: Vec<String>,
-    #[serde(default)]
-    pub projects: Vec<ProjectSummary>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ProjectSummary {
-    pub unique_project_id: String,
-    pub project_name: String,
-    pub client_name: Option<String>,
-    pub status: Option<String>,
-}
+use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
-pub struct DatabaseInfoResponse {
-    pub fetched_at: String,
-    pub source: String,
-    pub database_tables: Vec<String>,
-    pub project_tables: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct LegacyRoute {
-    pub method: &'static str,
-    pub path: &'static str,
-    pub name: &'static str,
-    pub migration_status: MigrationStatus,
-    pub note: &'static str,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MigrationStatus {
-    Implemented,
-    ReadOnly,
-    Placeholder,
-}
-
-#[derive(Debug, Serialize)]
 pub struct ApiMessage {
     pub status: &'static str,
     pub message: String,
     pub path: String,
 }
 
-pub fn legacy_routes() -> Vec<LegacyRoute> {
-    vec![
-        LegacyRoute {
-            method: "GET",
-            path: "/",
-            name: "トップ",
-            migration_status: MigrationStatus::Implemented,
-            note: "Rust 版ダッシュボードを表示します。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/api/projects",
-            name: "プロジェクト一覧 API",
-            migration_status: MigrationStatus::ReadOnly,
-            note: "MCP 取得済みスナップショットを返します。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/api/database",
-            name: "DB メタ情報 API",
-            migration_status: MigrationStatus::ReadOnly,
-            note: "MCP 取得済みのテーブル一覧を返します。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/api/routes",
-            name: "移植状況 API",
-            migration_status: MigrationStatus::Implemented,
-            note: "Python 版主要ルートの移植状態を返します。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/login",
-            name: "ログイン画面",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。認証処理は未移植です。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/select/group",
-            name: "グループ選択",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/dashboard/{jrc_group_name}",
-            name: "ダッシュボード",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/project/manage/incomplete/list/{jrc_group_name}",
-            name: "未完了プロジェクト一覧",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/project/manage/complete/list/{jrc_group_name}",
-            name: "完了プロジェクト一覧",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/project/manage/incomplete/gantt/{jrc_group_name}",
-            name: "ガントチャート",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/project/management/calender/{jrc_group_name}",
-            name: "カレンダー",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "GET",
-            path: "/project/manage/list/detail/{unique_project_id}",
-            name: "プロジェクト詳細",
-            migration_status: MigrationStatus::Placeholder,
-            note: "画面入口のみ互換対応しています。",
-        },
-        LegacyRoute {
-            method: "POST/PATCH/DELETE",
-            path: "更新・帳票・通知系 API",
-            name: "未移植 API",
-            migration_status: MigrationStatus::Placeholder,
-            note: "DB 更新、Excel/PDF、WebPush、バックグラウンド処理は 501 を返します。",
-        },
-    ]
+#[derive(Clone, Debug, Serialize)]
+pub struct HealthStatus {
+    pub status: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ApiSpecification {
+    pub title: String,
+    pub version: String,
+    pub generated_at: String,
+    pub overview: Vec<String>,
+    pub support_endpoints: Vec<SupportEndpointSpec>,
+    pub table_read_api: TableReadApiSpec,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SupportEndpointSpec {
+    pub method: String,
+    pub path: String,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TableReadApiSpec {
+    pub method: String,
+    pub route_prefix: String,
+    pub filtering_behavior: Vec<String>,
+    pub query_parameters: Vec<QueryParameterSpec>,
+    pub responses: Vec<ResponseSpec>,
+    pub table_endpoints: Vec<TableEndpointSpec>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct QueryParameterSpec {
+    pub name: String,
+    pub required: bool,
+    pub data_type: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ResponseSpec {
+    pub status: u16,
+    pub body: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TableEndpointSpec {
+    pub table_name: String,
+    pub model_name: String,
+    pub path: String,
+    pub summary: String,
+    pub schema_found: bool,
+    pub sample_request: String,
+    pub columns: Vec<TableColumnSpec>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TableColumnSpec {
+    pub name: String,
+    pub data_type: String,
+    pub column_type: String,
+    pub nullable: bool,
+    pub key_type: Option<String>,
+    pub ordinal_position: u32,
 }

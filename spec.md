@@ -1,21 +1,22 @@
 # spec.md
 
-## 要求
+## Request
 
-- 既存の Python Flask 版 ProjectHub を Rust 版へ置き換える。
-- Rust 版の作業フォルダは `C:\Users\j12415\RustRoverProjects\ProjectHubV2` とする。
-- 既存 Python 版の主要 URL へアクセスしたときに、Rust 版で応答できる入口を用意する。
+- Provide read-only API endpoints for each table model defined in `src/database_models/models.rs`.
+- Remove unused dashboard, snapshot, and compatibility code that is not used by the current runtime.
+- Publish an HTML API manual at `GET /manual`.
+- Publish a JSON API specification for the manual at `GET /api/spec`.
 
-## 今回の移植範囲
+## Scope
 
-- Actix Web を使用した Rust サーバーを起動する。
-- MCP 取得済みの `data/project_snapshot.json` を読み込み、プロジェクト一覧と DB メタ情報を API で返す。
-- Python 版の主要 GET ルートを Rust 版ダッシュボードへ接続する。
-- DB 更新、帳票、通知、認証、バックグラウンド処理など未移植の操作系ルートは 501 JSON を返す。
-- 画面の文字化けを修正し、移植状況を確認できる画面にする。
+- Keep the server focused on read-only MySQL table APIs.
+- Build the API specification from `information_schema.columns` of the connected database.
+- Serve the support routes `GET /`, `GET /manual`, `GET /api/spec`, and `GET /health`.
+- Keep filtering behavior limited to exact-match query parameters.
 
-## 制約・未決事項
+## Constraints
 
-- Python 版の SQLAlchemy/Pandas/OpenPyXL/ReportLab/WebPush 相当機能は、Rust 側の DB 接続方式と帳票ライブラリ選定が必要。
-- 現在のプロジェクト一覧は MCP スナップショット由来で、実 DB へのライブクエリではない。
-- 認証セッション、権限チェック、Excel/PDF 出力、スケジューラは未移植。
+- This project is read-only. No update, delete, export, or background job endpoints are included.
+- Query parameter names must match the current table schema exactly.
+- If a model exists in code but its table is missing from the current database, the manual marks the schema as missing and runtime SQL may fail with `500`.
+- The current database connection string remains the existing project setting.

@@ -5,6 +5,22 @@ use serde::{Deserialize, Serialize};
 use rust_decimal::Decimal;
 use sqlx::FromRow;
 
+pub trait TableReadModel {
+    const TABLE_NAME: &'static str;
+}
+
+
+#[allow(dead_code)]
+pub trait ModelService{
+    fn execute(&self);
+}
+
+impl ModelService for IfsComponentsTable {
+    fn execute(&self) {
+        println!("ProjectServiceを実行");
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BacklogTaskDateTable {
     pub unique_project_id: String,
@@ -553,3 +569,53 @@ pub struct WorkTimeRecordTable {
     pub item_number: Option<String>,
     pub one_time_bind_user_code: Option<String>,
 }
+
+macro_rules! impl_table_read_model {
+    ($model:ty, $table_name:literal) => {
+        impl TableReadModel for $model {
+            const TABLE_NAME: &'static str = $table_name;
+        }
+    };
+}
+
+impl_table_read_model!(BacklogTaskDateTable, "backlog_task_date_table");
+impl_table_read_model!(BacklogTaskIdsTable, "backlog_task_ids_table");
+impl_table_read_model!(BacklogUsersTable, "backlog_users_table");
+impl_table_read_model!(BluePrintsTable, "blue_prints_table");
+impl_table_read_model!(BlueprintKindTable, "blueprint_kind_table");
+impl_table_read_model!(BluePrintAlertHistoryTable, "blue_print_alert_history_table");
+impl_table_read_model!(BluePrintsAlertSettingTable, "blue_prints_alert_setting_table");
+impl_table_read_model!(DesignPlanTable, "design_plan_table");
+impl_table_read_model!(DeviceUsedHistoryTable, "device_used_history_table");
+impl_table_read_model!(DrawingStatusTable, "drawing_status_table");
+impl_table_read_model!(DvaHistoryTable, "dva_history_table");
+impl_table_read_model!(ExternalUsersTable, "external_users_table");
+impl_table_read_model!(GroupKindTable, "group_kind_table");
+impl_table_read_model!(IfsComponentsTable, "ifs_components_table");
+impl_table_read_model!(IfsProjectsTable, "ifs_projects_table");
+impl_table_read_model!(
+    InformationEquipmentAssignTable,
+    "information_equipment_assign_table"
+);
+impl_table_read_model!(JrcUsersTable, "jrc_users_table");
+impl_table_read_model!(MeasuringDeviceKindTable, "measuring_device_kind_table");
+impl_table_read_model!(DeviceAssignTable, "device_assign_table");
+impl_table_read_model!(NulabAccountsTable, "nulab_accounts_table");
+impl_table_read_model!(PendingTable, "pending_table");
+impl_table_read_model!(ProcessKindTable, "process_kind_table");
+impl_table_read_model!(ProductionProcessTable, "production_process_table");
+impl_table_read_model!(ProjectAssignTable, "project_assign_table");
+impl_table_read_model!(ProjectFullMergedTableWork, "project_full_merged_table_work");
+impl_table_read_model!(ProjectFullMergedTmp, "project_full_merged_tmp");
+impl_table_read_model!(ReferenceNumberTable, "reference_number_table");
+impl_table_read_model!(RequiredDrawingTypesTable, "required_drawing_types_table");
+impl_table_read_model!(
+    ShipmentAuthorizationHistoryTable,
+    "shipment_authorization_history_table"
+);
+impl_table_read_model!(StatusKindTable, "status_kind_table");
+impl_table_read_model!(SystemProcessesTable, "system_processes_table");
+impl_table_read_model!(UpdateHistory, "update_history");
+impl_table_read_model!(UserAuthLevelTable, "user_auth_level_table");
+impl_table_read_model!(WorkItemKindTable, "work_item_kind_table");
+impl_table_read_model!(WorkTimeRecordTable, "work_time_record_table");
