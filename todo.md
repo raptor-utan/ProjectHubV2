@@ -1,11 +1,10 @@
 # todo.md
 
-- [x] Remove unused dashboard, snapshot, search DTO, and placeholder route code from the current runtime.
-- [x] Consolidate runtime routing around support routes and table read APIs only.
-- [x] Publish `GET /manual` as the HTML API manual.
-- [x] Publish `GET /api/spec` as the JSON API specification used by the manual.
-- [x] Localize the manual and API specification text to Japanese.
-- [x] Validate query filter columns against the current table schema.
-- [x] Confirm the project still builds with `cargo check`.
-- [ ] Move the database connection string out of source code if environment-based configuration is required later.
-- [ ] Add HTTP-level endpoint tests if API regression coverage becomes necessary.
+- [x] GET の共通 `/read` ルートはそのまま維持する。
+- [x] JSON 検索を POST `/read` に移す。
+- [x] upsert を POST `/update` に残す。
+- [x] POST の `table_name` から対象モデルへディスパッチする。
+- [x] `/api/spec` と `/manual` の POST 記述を更新する。
+- [x] `query_param_test.http` の POST サンプルを更新する。
+- [x] `cargo check`、`cargo test`、`node --check static/manual.js` で確認する。
+- [ ] DB 接続文字列の環境変数化が必要になったら別タスクで対応する。

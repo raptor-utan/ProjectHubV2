@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ProjectHubV2 APIマニュアル</title>
+    <title>ProjectHubV2 API マニュアル</title>
     <link rel="stylesheet" href="/manual/styles.css">
   </head>
   <body>
@@ -11,9 +11,10 @@
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">ProjectHubV2</p>
-          <h1>APIマニュアル</h1>
+          <h1>API マニュアル</h1>
           <p class="lead">
-            読み取り専用テーブルAPIと補助エンドポイントの仕様をまとめた運用ドキュメントです。
+            `GET /read` は `table_name` クエリパラメータで読み取り対象を指定し、
+            `POST /read` は JSON 検索、`POST /update` は upsert を行います。どちらも対象テーブルは JSON の `table_name` で指定します。
           </p>
         </div>
         <div class="hero-actions">
@@ -23,15 +24,15 @@
       </header>
 
       <main class="layout">
-        <section class="summary-grid" id="summaryGrid" aria-label="概要"></section>
+        <section class="summary-grid" id="summaryGrid" aria-label="概要メトリクス"></section>
 
         <section class="panel" aria-labelledby="overviewTitle">
           <div class="section-head">
             <div>
               <p class="eyebrow">Overview</p>
-              <h2 id="overviewTitle">共通仕様</h2>
+              <h2 id="overviewTitle">全体像</h2>
             </div>
-            <p class="stamp" id="generatedAt">読み込み中</p>
+            <p class="stamp" id="generatedAt">仕様を読み込み中</p>
           </div>
           <ul class="rule-list" id="overviewList"></ul>
         </section>
@@ -47,33 +48,59 @@
             <div class="endpoint-list" id="supportEndpoints"></div>
           </section>
 
-          <section class="panel" aria-labelledby="tableApiTitle">
+          <section class="panel" aria-labelledby="tableGetTitle">
             <div class="section-head">
               <div>
-                <p class="eyebrow">Table Read</p>
-                <h2 id="tableApiTitle">テーブルAPIルール</h2>
+                <p class="eyebrow">GET</p>
+                <h2 id="tableGetTitle">クエリ文字列検索</h2>
               </div>
             </div>
             <div class="rule-block">
-              <code class="route-prefix" id="routePrefix"></code>
-              <ul class="rule-list" id="filteringBehavior"></ul>
+              <code class="route-prefix" id="getRoutePattern"></code>
+              <ul class="rule-list" id="getFilteringBehavior"></ul>
             </div>
             <div class="subsection">
               <h3>クエリパラメータ</h3>
-              <div class="parameter-list" id="queryParameters"></div>
+              <div class="parameter-list" id="getQueryParameters"></div>
             </div>
             <div class="subsection">
               <h3>レスポンス</h3>
-              <div class="response-list" id="responses"></div>
+              <div class="response-list" id="getResponses"></div>
             </div>
           </section>
+        </section>
+
+        <section class="panel" aria-labelledby="tablePostTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">POST</p>
+              <h2 id="tablePostTitle">JSON 検索と upsert</h2>
+            </div>
+          </div>
+          <div class="rule-block">
+            <code class="route-prefix" id="postReadRoutePattern"></code>
+            <code class="route-prefix" id="postUpsertRoutePattern"></code>
+            <ul class="rule-list" id="postBehavior"></ul>
+          </div>
+          <div class="two-column">
+            <div class="subsection">
+              <h3>JSON フィールド</h3>
+              <div class="parameter-list" id="postRequestFields"></div>
+            </div>
+            <div class="subsection">
+              <h3>JSON 検索レスポンス</h3>
+              <div class="response-list" id="postReadResponses"></div>
+              <h3 class="subsection-title">upsert レスポンス</h3>
+              <div class="response-list" id="postUpsertResponses"></div>
+            </div>
+          </div>
         </section>
 
         <section class="panel" aria-labelledby="tableEndpointsTitle">
           <div class="section-head search-head">
             <div>
               <p class="eyebrow">Endpoints</p>
-              <h2 id="tableEndpointsTitle">テーブル別API</h2>
+              <h2 id="tableEndpointsTitle">テーブル別 API</h2>
             </div>
             <label class="search-box" for="tableSearch">
               <span>検索</span>
@@ -81,7 +108,7 @@
             </label>
           </div>
           <div class="table-cards" id="tableCards"></div>
-          <div class="empty-note" id="emptyNote" hidden>一致するテーブルAPIがありません。</div>
+          <div class="empty-note" id="emptyNote" hidden>一致するテーブル API がありません。</div>
         </section>
       </main>
     </div>

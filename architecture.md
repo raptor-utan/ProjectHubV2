@@ -2,29 +2,28 @@
 
 ## Structure
 
-- `src/main.rs`: starts the Actix Web server and registers support routes plus table read routes.
-- `src/app_state.rs`: creates the MySQL pool and builds the cached API specification.
-- `src/routes.rs`: serves `/`, `/manual`, `/manual/styles.css`, `/manual/app.js`, `/api/spec`, and `/health`.
-- `src/assets.rs`: embeds the HTML, CSS, and JavaScript used by the manual page.
-- `src/services/table_read_service.rs`: registers one read-only endpoint per table model and handles query execution.
-- `src/services/api_spec_service.rs`: reads `information_schema.columns` and builds the JSON API specification.
-- `src/database_models/models.rs`: defines SQLx row models and table-name metadata for the read-only endpoints.
-- `src/utils.rs`: validates filter columns and builds SQL with bound values.
-- `static/manual.html`: manual page shell.
-- `static/manual.css`: manual page presentation.
-- `static/manual.js`: manual page rendering logic fed by `/api/spec`.
+- `src/main.rs`: Actix Web サーバーを起動し、補助ルートと table read ルートを登録する。
+- `src/app_state.rs`: MySQL プールを生成し、API 仕様をキャッシュする。
+- `src/routes.rs`: `/`、`/manual`、`/manual/styles.css`、`/manual/app.js`、`/api/spec`、`/health` を配信する。
+- `src/services/table_read_service.rs`: GET の共通 `/read`、JSON 検索の POST `/read`、upsert の POST `/update` を登録し、`table_name` からモデルへディスパッチする。
+- `src/services/api_spec_service.rs`: `information_schema.columns` から `/api/spec` 用 JSON を組み立てる。
+- `src/models.rs`: API DTO とマニュアル用仕様 DTO を定義する。
+- `src/utils.rs`: カラム検証と動的 SQL 組み立てを行う。
+- `static/manual.*`: `/manual` の画面を構成する。
 
 ## Runtime API
 
-- `GET /`: redirects to `/manual`.
-- `GET /manual`: returns the HTML API manual.
-- `GET /api/spec`: returns the JSON API specification.
-- `GET /health`: returns `{"status":"ok"}`.
-- `GET /system_api_server/si/v1/execute/sql/read/<table_name>`: returns rows from the matching table model with exact-match query filters.
+- `GET /`: `/manual` へリダイレクトする。
+- `GET /manual`: HTML マニュアルを返す。
+- `GET /api/spec`: JSON 仕様を返す。
+- `GET /health`: `{"status":"ok"}` を返す。
+- `GET /system_api_server/si/v1/execute/sql/read`: `table_name` クエリパラメータで対象テーブルを選び、クエリ文字列条件で検索する。
+- `POST /system_api_server/si/v1/execute/sql/read`: JSON の `table_name` で対象テーブルを選び、JSON 条件検索を実行する。
+- `POST /system_api_server/si/v1/execute/sql/update`: JSON の `table_name` で対象テーブルを選び、upsert を実行する。
 
 ## Design Notes
 
-- The project no longer keeps unused snapshot or dashboard code in the runtime path.
-- The API manual is generated from live database schema metadata instead of hand-maintained field lists.
-- Query values are always bound with placeholders.
-- Query parameter names are validated against the current table schema before SQL execution.
+- GET と JSON 検索 POST は同じ `/read` を共有し、入力形式だけを分ける。
+- upsert は `/update` に分離して `values` 必須にしている。
+- POST はどちらも JSON の `table_name` から既存の型付きハンドラへディスパッチする。
+- `/manual` と `/api/spec` では POST `/read` と POST `/update` を分けて案内する。

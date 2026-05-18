@@ -3,10 +3,16 @@ const elements = {
   generatedAt: document.getElementById("generatedAt"),
   overviewList: document.getElementById("overviewList"),
   supportEndpoints: document.getElementById("supportEndpoints"),
-  routePrefix: document.getElementById("routePrefix"),
-  filteringBehavior: document.getElementById("filteringBehavior"),
-  queryParameters: document.getElementById("queryParameters"),
-  responses: document.getElementById("responses"),
+  getRoutePattern: document.getElementById("getRoutePattern"),
+  getFilteringBehavior: document.getElementById("getFilteringBehavior"),
+  getQueryParameters: document.getElementById("getQueryParameters"),
+  getResponses: document.getElementById("getResponses"),
+  postReadRoutePattern: document.getElementById("postReadRoutePattern"),
+  postUpsertRoutePattern: document.getElementById("postUpsertRoutePattern"),
+  postBehavior: document.getElementById("postBehavior"),
+  postRequestFields: document.getElementById("postRequestFields"),
+  postReadResponses: document.getElementById("postReadResponses"),
+  postUpsertResponses: document.getElementById("postUpsertResponses"),
   tableCards: document.getElementById("tableCards"),
   tableSearch: document.getElementById("tableSearch"),
   emptyNote: document.getElementById("emptyNote"),
@@ -28,10 +34,10 @@ function createElement(tagName, className, textContent) {
 function renderSummary(spec) {
   const cards = [
     { label: "補助エンドポイント", value: spec.support_endpoints.length },
-    { label: "テーブルAPI", value: spec.table_read_api.table_endpoints.length },
+    { label: "テーブル API", value: spec.table_endpoints.length },
     {
-      label: "取得カラム数",
-      value: spec.table_read_api.table_endpoints.reduce(
+      label: "総カラム数",
+      value: spec.table_endpoints.reduce(
         (sum, endpoint) => sum + endpoint.columns.length,
         0,
       ),
@@ -72,8 +78,8 @@ function renderSupportEndpoints(items) {
   });
 }
 
-function renderQueryParameters(items) {
-  elements.queryParameters.replaceChildren();
+function renderRequestFields(target, items) {
+  target.replaceChildren();
 
   items.forEach((parameter) => {
     const card = createElement("article", "parameter-card");
@@ -82,8 +88,8 @@ function renderQueryParameters(items) {
       createElement("strong", "", parameter.name),
       createElement(
         "span",
-        "schema-badge ok",
-        parameter.required ? "必須" : "任意",
+        `schema-badge ${parameter.required ? "warn" : "ok"}`,
+        parameter.required ? "required" : "optional",
       ),
     );
 
@@ -94,12 +100,12 @@ function renderQueryParameters(items) {
     );
 
     card.append(line, typeText);
-    elements.queryParameters.appendChild(card);
+    target.appendChild(card);
   });
 }
 
-function renderResponses(items) {
-  elements.responses.replaceChildren();
+function renderResponses(target, items) {
+  target.replaceChildren();
 
   items.forEach((response) => {
     const card = createElement("article", "response-card");
@@ -112,7 +118,7 @@ function renderResponses(items) {
     );
 
     card.append(line, createElement("p", "card-note", response.description));
-    elements.responses.appendChild(card);
+    target.appendChild(card);
   });
 }
 
@@ -121,7 +127,8 @@ function createColumnsTable(columns) {
   const table = createElement("table");
   const thead = createElement("thead");
   const headerRow = createElement("tr");
-  ["列名", "型", "DB型", "NULL許可", "キー", "順序"].forEach((label) => {
+
+  ["カラム", "型", "DB型", "NULL", "キー", "順序"].forEach((label) => {
     headerRow.appendChild(createElement("th", "", label));
   });
   thead.appendChild(headerRow);
@@ -147,6 +154,19 @@ function createColumnsTable(columns) {
   return wrapper;
 }
 
+function createSampleBlock(method, title, sampleText) {
+  const block = createElement("div", "sample-block");
+  const head = createElement("div", "sample-head");
+  const badge = createElement(
+    "span",
+    `http-badge ${method === "POST" ? "http-badge post" : ""}`,
+    method,
+  );
+  head.append(badge, createElement("strong", "", title));
+  block.append(head, createElement("pre", "sample-request sample-code", sampleText));
+  return block;
+}
+
 function renderTableEndpoints(items) {
   elements.tableCards.replaceChildren();
   elements.emptyNote.hidden = items.length !== 0;
@@ -162,24 +182,29 @@ function renderTableEndpoints(items) {
     );
 
     const badgeClass = endpoint.schema_found ? "schema-badge ok" : "schema-badge warn";
-    const badgeText = endpoint.schema_found ? "スキーマ取得済み" : "スキーマ未取得";
+    const badgeText = endpoint.schema_found ? "schema ok" : "schema missing";
     head.append(titleGroup, createElement("span", badgeClass, badgeText));
+
+    const sampleGrid = createElement("div", "sample-grid");
+    sampleGrid.append(
+      createSampleBlock("GET", "query-string read", endpoint.get_sample_request),
+      createSampleBlock("POST", "/read (search)", endpoint.post_read_sample_request),
+      createSampleBlock("POST", "/update (upsert)", endpoint.post_upsert_sample_request),
+    );
 
     card.append(
       head,
-      createElement("p", "table-path", endpoint.path),
+      createElement("p", "table-path", `JSON search path: ${endpoint.path}`),
       createElement("p", "card-note", endpoint.summary),
+      sampleGrid,
     );
-
-    const sample = createElement("code", "sample-request", endpoint.sample_request);
-    card.appendChild(sample);
 
     if (endpoint.columns.length === 0) {
       card.appendChild(
         createElement(
           "p",
           "card-note",
-          "information_schema から列情報を取得できませんでした。対象テーブルが現在のDBに存在しない可能性があります。",
+          "information_schema にテーブル定義が見つからなかったため、実カラム一覧は表示できません。",
         ),
       );
     } else {
@@ -213,7 +238,7 @@ async function fetchSpecification() {
   });
 
   if (!response.ok) {
-    throw new Error(`/api/spec が HTTP ${response.status} を返しました`);
+    throw new Error(`/api/spec returned HTTP ${response.status}`);
   }
 
   return response.json();
@@ -222,21 +247,31 @@ async function fetchSpecification() {
 async function loadManual() {
   try {
     const spec = await fetchSpecification();
-    allTableEndpoints = spec.table_read_api.table_endpoints;
+    allTableEndpoints = spec.table_endpoints;
 
     renderSummary(spec);
     elements.generatedAt.textContent = `生成日時: ${spec.generated_at}`;
     renderStringList(elements.overviewList, spec.overview);
     renderSupportEndpoints(spec.support_endpoints);
 
-    elements.routePrefix.textContent = `${spec.table_read_api.method} ${spec.table_read_api.route_prefix}<table_name>`;
-    renderStringList(elements.filteringBehavior, spec.table_read_api.filtering_behavior);
-    renderQueryParameters(spec.table_read_api.query_parameters);
-    renderResponses(spec.table_read_api.responses);
+    elements.getRoutePattern.textContent = `${spec.table_get_api.method} ${spec.table_get_api.route_pattern}`;
+    renderStringList(elements.getFilteringBehavior, spec.table_get_api.filtering_behavior);
+    renderRequestFields(elements.getQueryParameters, spec.table_get_api.query_parameters);
+    renderResponses(elements.getResponses, spec.table_get_api.responses);
+
+    elements.postReadRoutePattern.textContent =
+      `${spec.table_post_api.method} ${spec.table_post_api.read_route_pattern}`;
+    elements.postUpsertRoutePattern.textContent =
+      `${spec.table_post_api.method} ${spec.table_post_api.upsert_route_pattern}`;
+    renderStringList(elements.postBehavior, spec.table_post_api.behavior);
+    renderRequestFields(elements.postRequestFields, spec.table_post_api.request_fields);
+    renderResponses(elements.postReadResponses, spec.table_post_api.read_responses);
+    renderResponses(elements.postUpsertResponses, spec.table_post_api.upsert_responses);
+
     renderTableEndpoints(allTableEndpoints);
   } catch (error) {
     elements.overviewList.replaceChildren(
-      createElement("li", "", `API仕様の取得に失敗しました: ${error.message}`),
+      createElement("li", "", `API 仕様の読み込みに失敗しました: ${error.message}`),
     );
   }
 }
