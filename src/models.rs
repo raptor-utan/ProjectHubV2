@@ -41,6 +41,7 @@ pub struct QueryOptions {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct TablePostRequest {
+    pub schema_name: Option<String>,
     pub table_name: Option<String>,
     #[serde(default)]
     pub selector: BTreeMap<String, Value>,
@@ -69,6 +70,7 @@ pub struct ApiSpecification {
     pub version: String,
     pub generated_at: String,
     pub overview: Vec<String>,
+    pub allowed_schemas: Vec<String>,
     pub support_endpoints: Vec<SupportEndpointSpec>,
     pub table_get_api: TableGetApiSpec,
     pub table_post_api: TablePostApiSpec,

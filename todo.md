@@ -1,10 +1,12 @@
 # todo.md
 
-- [x] GET の共通 `/read` ルートはそのまま維持する。
-- [x] JSON 検索を POST `/read` に移す。
-- [x] upsert を POST `/update` に残す。
-- [x] POST の `table_name` から対象モデルへディスパッチする。
-- [x] `/api/spec` と `/manual` の POST 記述を更新する。
-- [x] `query_param_test.http` の POST サンプルを更新する。
-- [x] `cargo check`、`cargo test`、`node --check static/manual.js` で確認する。
-- [ ] DB 接続文字列の環境変数化が必要になったら別タスクで対応する。
+- [x] GET `/system_api_server/si/v1/execute/sql/read` を `table_name` クエリで参照できるようにする。
+- [x] JSON 条件検索を `POST /system_api_server/si/v1/execute/sql/read` に集約する。
+- [x] upsert を `POST /system_api_server/si/v1/execute/sql/update` に集約する。
+- [x] `table_name` を JSON ボディから受けてモデルへディスパッチする。
+- [x] DB 接続情報を `.env` から取得する。
+- [x] 実行ディレクトリ直下に `.env` がない場合は親ディレクトリの `.env` を参照する。
+- [x] `schema_name` をクエリパラメータと JSON の両方で受ける。
+- [x] デフォルトスキーマ設定を追加し、`schema_name` 未指定時に使う。
+- [x] スキーマ allowlist を追加し、許可されたスキーマだけアクセス可能にする。
+- [x] `cargo check` と `cargo test` で変更範囲を確認する。

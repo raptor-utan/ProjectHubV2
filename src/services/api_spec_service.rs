@@ -9,7 +9,9 @@ use crate::models::{
     TableEndpointSpec, TableGetApiSpec, TablePostApiSpec,
 };
 use crate::services::table_read_service::{TableEndpointDescriptor, table_endpoint_descriptors};
-use crate::settings::constants::{TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_UPDATE_ROUTE};
+use crate::settings::constants::{
+    TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM, TABLE_UPDATE_ROUTE,
+};
 
 #[derive(Debug, FromRow)]
 struct InformationSchemaColumnRow {
@@ -22,10 +24,14 @@ struct InformationSchemaColumnRow {
     ordinal_position: u32,
 }
 
-/// information_schema から現在のテーブル API 仕様を組み立てます。
-pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::Error> {
+/// information_schema を基準に API 仕様を組み立てる。
+pub async fn build_api_spec(
+    pool: &MySqlPool,
+    allowed_schemas: &[String],
+    default_schema: &str,
+) -> Result<ApiSpecification, sqlx::Error> {
     let table_descriptors = table_endpoint_descriptors();
-    let columns_by_table = fetch_columns_by_table(pool, &table_descriptors).await?;
+    let columns_by_table = fetch_columns_by_table(pool, &table_descriptors, default_schema).await?;
 
     let table_endpoints = table_descriptors
         .iter()
@@ -34,21 +40,24 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
                 .get(descriptor.table_name)
                 .cloned()
                 .unwrap_or_default();
+
             TableEndpointSpec {
                 table_name: descriptor.table_name.to_string(),
                 model_name: descriptor.model_name.to_string(),
                 path: TABLE_READ_ROUTE.to_string(),
                 summary: format!(
-                    "{} は GET と POST /read では検索でき、POST /update では upsert できます。",
+                    "{} can be read by GET or POST /read and updated by POST /update within the allowed schemas",
                     descriptor.table_name
                 ),
                 schema_found: !columns.is_empty(),
-                get_sample_request: build_get_sample_request(descriptor.table_name, &columns),
+                get_sample_request: build_get_sample_request(default_schema, descriptor.table_name, &columns),
                 post_read_sample_request: build_post_read_sample_request(
+                    default_schema,
                     descriptor.table_name,
                     &columns,
                 ),
                 post_upsert_sample_request: build_post_upsert_sample_request(
+                    default_schema,
                     descriptor.table_name,
                     &columns,
                 ),
@@ -58,19 +67,25 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
         .collect();
 
     Ok(ApiSpecification {
-        title: "ProjectHubV2 API 仕様".to_string(),
-        version: "1.1.0".to_string(),
+        title: "ProjectHubV2 API仕様".to_string(),
+        version: "1.2.0".to_string(),
         generated_at: Local::now().to_rfc3339(),
         overview: vec![
-            "ProjectHubV2 は、接続中の MySQL テーブルをそのまま参照できるテーブル単位 API を提供します。"
-                .to_string(),
-            "GET はクエリ文字列による簡易検索、POST は JSON ボディによる詳細検索または upsert に使います。"
-                .to_string(),
-            "POST の selector では `and_` / `or_` を選べ、文字列に `%` を含めると LIKE 条件として扱います。"
-                .to_string(),
-            "POST に values を含めると、条件に合う先頭 1 件を更新し、見つからなければ selector と values を合わせて新規作成します。"
-                .to_string(),
+            format!(
+                "GET はクエリ、POST は JSON で検索条件を受け取り、POST /update は upsert を実行します。"
+            ),
+            format!(
+                "`{TABLE_SCHEMA_QUERY_PARAM}` は GET と POST の両方で指定できます。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+            ),
+            format!(
+                "アクセス可能なスキーマは次の allowlist のみです: {}",
+                allowed_schemas.join(", ")
+            ),
+            format!(
+                "カラム定義とサンプルはデフォルトスキーマ `{default_schema}` の information_schema を基準に生成しています。"
+            ),
         ],
+        allowed_schemas: allowed_schemas.to_vec(),
         support_endpoints: vec![
             SupportEndpointSpec {
                 method: "GET".to_string(),
@@ -80,12 +95,12 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/manual".to_string(),
-                summary: "HTML 形式の API マニュアルを返します。".to_string(),
+                summary: "HTML 形式の API マニュアルを表示します。".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/api/spec".to_string(),
-                summary: "/manual が参照する JSON 形式の API 仕様を返します。".to_string(),
+                summary: "マニュアル用の JSON API 仕様を返します。".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
@@ -97,45 +112,48 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
             method: "GET".to_string(),
             route_pattern: TABLE_READ_ROUTE.to_string(),
             filtering_behavior: vec![
+                format!("`{TABLE_NAME_QUERY_PARAM}` は必須です。"),
                 format!(
-                    "`{TABLE_NAME_QUERY_PARAM}` は必須です。値には対象テーブル名を指定してください。"
+                    "`{TABLE_SCHEMA_QUERY_PARAM}` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
                 ),
-                "クエリ文字列のカラム名は現在のテーブルスキーマと完全一致している必要があります。"
-                    .to_string(),
-                "空文字のクエリ値は無視され、それ以外は AND 条件で検索されます。".to_string(),
-                "文字列に `%` を含めると LIKE 条件として扱います。".to_string(),
+                "追加のクエリパラメータは対象テーブルのカラム名として扱い、AND 条件で検索します。".to_string(),
+                "文字列値に `%` を含めると LIKE 条件として扱います。".to_string(),
             ],
             query_parameters: vec![
+                RequestFieldSpec {
+                    name: TABLE_SCHEMA_QUERY_PARAM.to_string(),
+                    required: false,
+                    data_type: "string".to_string(),
+                    description: "対象スキーマ名。allowlist に含まれる値のみ指定できます。".to_string(),
+                },
                 RequestFieldSpec {
                     name: TABLE_NAME_QUERY_PARAM.to_string(),
                     required: true,
                     data_type: "string".to_string(),
-                    description: "読み取り対象のテーブル名です。GET ではこのクエリパラメータのみでテーブルを指定します。"
-                        .to_string(),
+                    description: "対象テーブル名。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "<column_name>".to_string(),
                     required: false,
                     data_type: "string".to_string(),
-                    description: "一致または LIKE で検索する対象カラムです。".to_string(),
+                    description: "一致または LIKE で検索するカラム値。".to_string(),
                 },
             ],
             responses: vec![
                 ResponseSpec {
                     status: 200,
                     body: "テーブル行の JSON 配列".to_string(),
-                    description: "一致した行をそのまま配列で返します。".to_string(),
+                    description: "条件に一致した行を返します。".to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
-                    description: "table_name 不一致や不正なカラム名を検出した場合に返します。"
-                        .to_string(),
+                    description: "必須パラメータ不足、許可外スキーマ、不正カラムのときに返します。".to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行またはテーブル参照に失敗した場合に返します。".to_string(),
+                    description: "SQL 実行に失敗したときに返します。".to_string(),
                 },
             ],
         },
@@ -144,67 +162,67 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
             read_route_pattern: TABLE_READ_ROUTE.to_string(),
             upsert_route_pattern: TABLE_UPDATE_ROUTE.to_string(),
             behavior: vec![
-                "POST /read では JSON 条件検索を行い、`{\"result\":[...]}` を返します。"
-                    .to_string(),
-                "POST /update では JSON の table_name を使って対象テーブルを選び、upsert を行います。"
-                    .to_string(),
-                "POST /update の values は必須です。条件に合う先頭 1 件を更新し、見つからなければ新規作成します。"
-                    .to_string(),
-                "search_mode の既定値は `or_` です。`options.order_by` を指定すると一致候補の先頭判定は降順になります。"
-                    .to_string(),
-                "selector が空の upsert は更新を行わず、values と selector の内容をそのまま INSERT します。"
-                    .to_string(),
+                "POST /read は JSON 条件検索を行い、{\"result\":[...]} を返します。".to_string(),
+                "POST /update は JSON upsert を行い、update か insert の結果を返します。".to_string(),
+                format!(
+                    "`schema_name` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+                ),
+                "selector では and_ / or_ を選べ、options.order_by と options.limit を指定できます。".to_string(),
+                "POST /update の values は必須で、更新対象が見つからない場合は selector と values を合わせて INSERT します。".to_string(),
             ],
             request_fields: vec![
+                RequestFieldSpec {
+                    name: "schema_name".to_string(),
+                    required: false,
+                    data_type: "string".to_string(),
+                    description: "対象スキーマ名。allowlist に含まれる値のみ指定できます。".to_string(),
+                },
                 RequestFieldSpec {
                     name: "table_name".to_string(),
                     required: true,
                     data_type: "string".to_string(),
-                    description: "POST /read と POST /update の対象テーブル名です。JSON ボディで必須です。".to_string(),
+                    description: "対象テーブル名。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "selector".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "検索条件です。各キーは実在カラム名、各値は文字列・数値・真偽値・null を指定できます。"
-                        .to_string(),
+                    description: "検索条件。値には string / number / bool / null を使用できます。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "search_mode".to_string(),
                     required: false,
                     data_type: "`and_` | `or_`".to_string(),
-                    description: "selector の結合方法です。省略時は `or_` です。".to_string(),
+                    description: "selector の結合方法。省略時は `or_` です。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "options".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "`order_by` と `limit` を指定できます。order_by は降順です。"
-                        .to_string(),
+                    description: "`order_by` と `limit` を指定できます。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "values".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "指定すると upsert になります。INSERT 時は selector と values をマージし、values が優先されます。"
-                        .to_string(),
+                    description: "POST /update 用の更新値。POST /read では指定できません。".to_string(),
                 },
             ],
             read_responses: vec![
                 ResponseSpec {
                     status: 200,
                     body: "{\"result\":[...]}".to_string(),
-                    description: "JSON 条件検索の結果を返します。".to_string(),
+                    description: "JSON 条件検索の結果です。".to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
-                    description: "JSON 解析失敗、不正なカラム、不正な値型などを返します。".to_string(),
+                    description: "必須項目不足、許可外スキーマ、不正カラム、不正 JSON のときに返します。".to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行またはテーブル参照に失敗した場合に返します。".to_string(),
+                    description: "SQL 実行に失敗したときに返します。".to_string(),
                 },
             ],
             upsert_responses: vec![
@@ -212,18 +230,17 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
                     status: 200,
                     body: "{\"result\":\"update|insert\",\"created_id\":number|null}"
                         .to_string(),
-                    description: "更新時は created_id が null、INSERT 時は auto increment があれば ID を返します。"
-                        .to_string(),
+                    description: "insert 時は auto increment の ID を created_id に返します。".to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
-                    description: "JSON 解析失敗、不正なカラム、不正な値型などを返します。".to_string(),
+                    description: "必須項目不足、許可外スキーマ、不正カラム、不正 JSON のときに返します。".to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行またはテーブル参照に失敗した場合に返します。".to_string(),
+                    description: "SQL 実行に失敗したときに返します。".to_string(),
                 },
             ],
         },
@@ -234,6 +251,7 @@ pub async fn build_api_spec(pool: &MySqlPool) -> Result<ApiSpecification, sqlx::
 async fn fetch_columns_by_table(
     pool: &MySqlPool,
     table_descriptors: &[TableEndpointDescriptor],
+    default_schema: &str,
 ) -> Result<BTreeMap<String, Vec<TableColumnSpec>>, sqlx::Error> {
     let mut columns_by_table = BTreeMap::new();
     if table_descriptors.is_empty() {
@@ -250,8 +268,11 @@ async fn fetch_columns_by_table(
              CAST(COLUMN_KEY AS CHAR(32)) AS column_key, \
              ORDINAL_POSITION AS ordinal_position \
          FROM information_schema.columns \
-         WHERE table_schema = DATABASE() AND TABLE_NAME IN (",
+         WHERE table_schema = ",
     );
+
+    query_builder.push_bind(default_schema);
+    query_builder.push(" AND TABLE_NAME IN (");
 
     {
         let mut separated = query_builder.separated(", ");
@@ -284,23 +305,34 @@ async fn fetch_columns_by_table(
     Ok(columns_by_table)
 }
 
-fn build_get_sample_request(table_name: &str, columns: &[TableColumnSpec]) -> String {
+fn build_get_sample_request(
+    default_schema: &str,
+    table_name: &str,
+    columns: &[TableColumnSpec],
+) -> String {
     match columns.first() {
         Some(column) => format!(
-            "{TABLE_READ_ROUTE}?{TABLE_NAME_QUERY_PARAM}={table_name}&{}=<value>",
+            "{TABLE_READ_ROUTE}?{TABLE_SCHEMA_QUERY_PARAM}={default_schema}&{TABLE_NAME_QUERY_PARAM}={table_name}&{}=<value>",
             column.name
         ),
-        None => format!("{TABLE_READ_ROUTE}?{TABLE_NAME_QUERY_PARAM}={table_name}"),
+        None => format!(
+            "{TABLE_READ_ROUTE}?{TABLE_SCHEMA_QUERY_PARAM}={default_schema}&{TABLE_NAME_QUERY_PARAM}={table_name}"
+        ),
     }
 }
 
-fn build_post_read_sample_request(table_name: &str, columns: &[TableColumnSpec]) -> String {
+fn build_post_read_sample_request(
+    default_schema: &str,
+    table_name: &str,
+    columns: &[TableColumnSpec],
+) -> String {
     let selector_column = columns
         .first()
         .map(|column| column.name.clone())
         .unwrap_or_else(|| "example_column".to_string());
 
     serde_json::to_string_pretty(&json!({
+        "schema_name": default_schema,
         "table_name": table_name,
         "search_mode": "and_",
         "selector": {
@@ -310,7 +342,11 @@ fn build_post_read_sample_request(table_name: &str, columns: &[TableColumnSpec])
     .expect("sample JSON must be serializable")
 }
 
-fn build_post_upsert_sample_request(table_name: &str, columns: &[TableColumnSpec]) -> String {
+fn build_post_upsert_sample_request(
+    default_schema: &str,
+    table_name: &str,
+    columns: &[TableColumnSpec],
+) -> String {
     let selector_column = columns
         .first()
         .map(|column| column.name.clone())
@@ -322,6 +358,7 @@ fn build_post_upsert_sample_request(table_name: &str, columns: &[TableColumnSpec
         .unwrap_or_else(|| selector_column.clone());
 
     serde_json::to_string_pretty(&json!({
+        "schema_name": default_schema,
         "table_name": table_name,
         "search_mode": "and_",
         "selector": {

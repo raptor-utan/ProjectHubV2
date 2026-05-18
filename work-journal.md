@@ -11,3 +11,6 @@
 - 2026-05-18 Changed GET table read routing to use only the `table_name` query parameter instead of a path parameter.
 - 2026-05-18 Moved JSON-body POST search/upsert to `/system_api_server/si/v1/execute/sql/update` and switched table selection to JSON `table_name`.
 - 2026-05-18 Split JSON-body search back to `POST /system_api_server/si/v1/execute/sql/read` while keeping upsert on `POST /system_api_server/si/v1/execute/sql/update`.
+- 2026-05-18 Switched database connection initialization to `.env`-based settings with a parent-directory fallback.
+- 2026-05-18 Added schema_name support for GET/POST, configurable default schema, and schema allowlist enforcement.
+- 2026-05-18 Added fallback handling for URL-encoded `DB_PASSWORD` values in split DB env settings.

@@ -6,7 +6,7 @@ use sqlx::{FromRow, MySql, MySqlPool, QueryBuilder};
 
 use crate::database_models::models::TableReadModel;
 use crate::models::{ApiSpecification, QueryOptions, SearchMode, TablePostRequest, UpsertResult};
-use crate::settings::constants::TABLE_NAME_QUERY_PARAM;
+use crate::settings::constants::{TABLE_NAME_QUERY_PARAM, TABLE_SCHEMA_QUERY_PARAM};
 
 #[derive(Debug)]
 pub enum TableApiError {
@@ -20,14 +20,16 @@ impl TableApiError {
     pub fn message(&self) -> String {
         match self {
             Self::TableNameMismatch { expected, actual } => {
-                format!("table_name が一致しません。expected={expected}, actual={actual}")
+                format!(
+                    "table_name does not match the endpoint model. expected={expected}, actual={actual}"
+                )
             }
             Self::InvalidColumn(column) => {
-                format!("許可されていないカラムです: {column}")
+                format!("Unknown or unsupported column: {column}")
             }
             Self::InvalidRequest(message) => message.clone(),
             Self::QueryFailed(error) => {
-                format!("データベース操作に失敗しました: {error}")
+                format!("Database query failed: {error}")
             }
         }
     }
@@ -41,6 +43,10 @@ fn is_safe_identifier(identifier: &str) -> bool {
     }
 
     chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn qualified_table_name(schema_name: &str, table_name: &str) -> String {
+    format!("`{schema_name}`.`{table_name}`")
 }
 
 fn allowed_columns<'a>(api_spec: &'a ApiSpecification, table_name: &str) -> Vec<&'a str> {
@@ -70,7 +76,7 @@ fn ensure_supported_value(value: &Value, field_name: &str) -> Result<(), TableAp
     match value {
         Value::Null | Value::String(_) | Value::Bool(_) | Value::Number(_) => Ok(()),
         Value::Array(_) | Value::Object(_) => Err(TableApiError::InvalidRequest(format!(
-            "{field_name} には文字列・数値・真偽値・null のみ指定できます。"
+            "{field_name} supports only string, number, bool, or null values"
         ))),
     }
 }
@@ -94,7 +100,7 @@ fn push_json_value(
         }
         Value::Array(_) | Value::Object(_) => {
             return Err(TableApiError::InvalidRequest(
-                "配列またはオブジェクトは SQL 値として使用できません。".to_string(),
+                "Array and object values are not supported in SQL conditions".to_string(),
             ));
         }
     }
@@ -122,7 +128,7 @@ fn push_number_value(
     }
 
     Err(TableApiError::InvalidRequest(
-        "数値の解釈に失敗しました。".to_string(),
+        "Failed to decode numeric value".to_string(),
     ))
 }
 
@@ -186,7 +192,10 @@ fn normalize_selector(params: &HashMap<String, String>) -> BTreeMap<String, Valu
     let mut selector = BTreeMap::new();
 
     for (column, value) in params {
-        if column == TABLE_NAME_QUERY_PARAM || value.is_empty() {
+        if column == TABLE_NAME_QUERY_PARAM
+            || column == TABLE_SCHEMA_QUERY_PARAM
+            || value.is_empty()
+        {
             continue;
         }
 
@@ -208,6 +217,34 @@ fn build_insert_values(request: &TablePostRequest) -> BTreeMap<String, Value> {
     insert_values
 }
 
+pub fn validate_allowed_schema(
+    allowed_schemas: &[String],
+    schema_name: &str,
+) -> Result<(), TableApiError> {
+    if schema_name.trim().is_empty() {
+        return Err(TableApiError::InvalidRequest(
+            "schema_name must not be empty".to_string(),
+        ));
+    }
+
+    if !is_safe_identifier(schema_name) {
+        return Err(TableApiError::InvalidRequest(format!(
+            "schema_name contains unsupported characters: {schema_name}"
+        )));
+    }
+
+    if !allowed_schemas
+        .iter()
+        .any(|allowed_schema| allowed_schema == schema_name)
+    {
+        return Err(TableApiError::InvalidRequest(format!(
+            "schema_name is not allowed: {schema_name}"
+        )));
+    }
+
+    Ok(())
+}
+
 pub fn validate_filter_columns(
     api_spec: &ApiSpecification,
     table_name: &str,
@@ -216,7 +253,7 @@ pub fn validate_filter_columns(
     let allowed_columns = allowed_columns(api_spec, table_name);
 
     for column in params.keys() {
-        if column == TABLE_NAME_QUERY_PARAM {
+        if column == TABLE_NAME_QUERY_PARAM || column == TABLE_SCHEMA_QUERY_PARAM {
             continue;
         }
 
@@ -259,7 +296,7 @@ pub fn validate_post_request(
 
     if request.options.limit == Some(0) {
         return Err(TableApiError::InvalidRequest(
-            "options.limit には 1 以上の値を指定してください。".to_string(),
+            "options.limit must be at least 1".to_string(),
         ));
     }
 
@@ -268,6 +305,7 @@ pub fn validate_post_request(
 
 pub async fn fetch_table_rows<R>(
     pool: &MySqlPool,
+    schema_name: &str,
     params: &HashMap<String, String>,
 ) -> Result<Vec<R>, TableApiError>
 where
@@ -283,12 +321,19 @@ where
     }
 
     let selector = normalize_selector(params);
-    fetch_table_rows_from_selector::<R>(pool, &selector, SearchMode::And, &QueryOptions::default())
-        .await
+    fetch_table_rows_from_selector::<R>(
+        pool,
+        schema_name,
+        &selector,
+        SearchMode::And,
+        &QueryOptions::default(),
+    )
+    .await
 }
 
 pub async fn fetch_table_rows_from_selector<R>(
     pool: &MySqlPool,
+    schema_name: &str,
     selector: &BTreeMap<String, Value>,
     search_mode: SearchMode,
     options: &QueryOptions,
@@ -296,8 +341,8 @@ pub async fn fetch_table_rows_from_selector<R>(
 where
     R: TableReadModel + for<'row> FromRow<'row, MySqlRow> + Send + Unpin + 'static,
 {
-    let mut query_builder =
-        QueryBuilder::<MySql>::new(format!("SELECT * FROM `{}`", R::TABLE_NAME));
+    let table_name = qualified_table_name(schema_name, R::TABLE_NAME);
+    let mut query_builder = QueryBuilder::<MySql>::new(format!("SELECT * FROM {table_name}"));
     append_selector_conditions(&mut query_builder, selector, search_mode)?;
     append_order_by_and_limit(&mut query_builder, options, None);
 
@@ -310,6 +355,7 @@ where
 
 pub async fn upsert_table_row<R>(
     pool: &MySqlPool,
+    schema_name: &str,
     request: &TablePostRequest,
 ) -> Result<UpsertResult, TableApiError>
 where
@@ -318,13 +364,12 @@ where
     let insert_values = build_insert_values(request);
     if insert_values.is_empty() {
         return Err(TableApiError::InvalidRequest(
-            "selector または values のどちらかには少なくとも 1 つ値を指定してください。"
-                .to_string(),
+            "At least one value is required in selector or values".to_string(),
         ));
     }
 
     if request.selector.is_empty() {
-        let created_id = insert_table_row(pool, R::TABLE_NAME, &insert_values).await?;
+        let created_id = insert_table_row(pool, schema_name, R::TABLE_NAME, &insert_values).await?;
         return Ok(UpsertResult {
             result: "insert",
             created_id,
@@ -333,6 +378,7 @@ where
 
     if row_exists(
         pool,
+        schema_name,
         R::TABLE_NAME,
         &request.selector,
         request.search_mode,
@@ -344,6 +390,7 @@ where
             if !values.is_empty() {
                 update_first_matching_row(
                     pool,
+                    schema_name,
                     R::TABLE_NAME,
                     &request.selector,
                     request.search_mode,
@@ -360,7 +407,7 @@ where
         });
     }
 
-    let created_id = insert_table_row(pool, R::TABLE_NAME, &insert_values).await?;
+    let created_id = insert_table_row(pool, schema_name, R::TABLE_NAME, &insert_values).await?;
     Ok(UpsertResult {
         result: "insert",
         created_id,
@@ -369,12 +416,14 @@ where
 
 async fn row_exists(
     pool: &MySqlPool,
+    schema_name: &str,
     table_name: &str,
     selector: &BTreeMap<String, Value>,
     search_mode: SearchMode,
     options: &QueryOptions,
 ) -> Result<bool, TableApiError> {
-    let mut query_builder = QueryBuilder::<MySql>::new(format!("SELECT 1 FROM `{table_name}`"));
+    let qualified_name = qualified_table_name(schema_name, table_name);
+    let mut query_builder = QueryBuilder::<MySql>::new(format!("SELECT 1 FROM {qualified_name}"));
     append_selector_conditions(&mut query_builder, selector, search_mode)?;
     append_order_by_and_limit(&mut query_builder, options, Some(1));
 
@@ -388,13 +437,15 @@ async fn row_exists(
 
 async fn update_first_matching_row(
     pool: &MySqlPool,
+    schema_name: &str,
     table_name: &str,
     selector: &BTreeMap<String, Value>,
     search_mode: SearchMode,
     options: &QueryOptions,
     values: &BTreeMap<String, Value>,
 ) -> Result<(), TableApiError> {
-    let mut query_builder = QueryBuilder::<MySql>::new(format!("UPDATE `{table_name}` SET "));
+    let qualified_name = qualified_table_name(schema_name, table_name);
+    let mut query_builder = QueryBuilder::<MySql>::new(format!("UPDATE {qualified_name} SET "));
     let mut is_first = true;
 
     for (column, value) in values {
@@ -423,10 +474,12 @@ async fn update_first_matching_row(
 
 async fn insert_table_row(
     pool: &MySqlPool,
+    schema_name: &str,
     table_name: &str,
     values: &BTreeMap<String, Value>,
 ) -> Result<Option<u64>, TableApiError> {
-    let mut query_builder = QueryBuilder::<MySql>::new(format!("INSERT INTO `{table_name}` ("));
+    let qualified_name = qualified_table_name(schema_name, table_name);
+    let mut query_builder = QueryBuilder::<MySql>::new(format!("INSERT INTO {qualified_name} ("));
     let mut is_first = true;
 
     for column in values.keys() {
@@ -477,7 +530,9 @@ mod tests {
 
     use serde_json::{Value, json};
 
-    use super::{TableApiError, normalize_selector, validate_post_request};
+    use super::{
+        TableApiError, normalize_selector, validate_allowed_schema, validate_post_request,
+    };
     use crate::models::{
         ApiSpecification, QueryOptions, RequestFieldSpec, ResponseSpec, SearchMode,
         SupportEndpointSpec, TableColumnSpec, TableEndpointSpec, TableGetApiSpec, TablePostApiSpec,
@@ -490,6 +545,7 @@ mod tests {
             version: "1.0.0".to_string(),
             generated_at: "2026-05-18T00:00:00+09:00".to_string(),
             overview: Vec::new(),
+            allowed_schemas: vec!["ifs_reference_data".to_string()],
             support_endpoints: vec![SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/health".to_string(),
@@ -552,8 +608,9 @@ mod tests {
     }
 
     #[test]
-    fn normalize_selector_skips_table_name_and_empty_values() {
+    fn normalize_selector_skips_table_name_schema_name_and_empty_values() {
         let params = HashMap::from([
+            ("schema_name".to_string(), "ifs_reference_data".to_string()),
             ("table_name".to_string(), "sample_table".to_string()),
             ("id".to_string(), "10".to_string()),
             ("name".to_string(), "".to_string()),
@@ -566,9 +623,24 @@ mod tests {
     }
 
     #[test]
+    fn validate_allowed_schema_accepts_listed_schema() {
+        validate_allowed_schema(&["ifs_reference_data".to_string()], "ifs_reference_data")
+            .expect("listed schema should pass");
+    }
+
+    #[test]
+    fn validate_allowed_schema_rejects_unlisted_schema() {
+        let error = validate_allowed_schema(&["ifs_reference_data".to_string()], "other_schema")
+            .expect_err("unlisted schema should fail");
+
+        assert!(matches!(error, TableApiError::InvalidRequest(_)));
+    }
+
+    #[test]
     fn validate_post_request_rejects_unknown_columns() {
         let api_spec = build_api_spec();
         let request = TablePostRequest {
+            schema_name: Some("ifs_reference_data".to_string()),
             table_name: Some("sample_table".to_string()),
             selector: BTreeMap::from([("unknown".to_string(), json!("x"))]),
             search_mode: SearchMode::And,
@@ -586,6 +658,7 @@ mod tests {
     fn validate_post_request_accepts_scalar_values() {
         let api_spec = build_api_spec();
         let request = TablePostRequest {
+            schema_name: Some("ifs_reference_data".to_string()),
             table_name: Some("sample_table".to_string()),
             selector: BTreeMap::from([("id".to_string(), json!(10))]),
             search_mode: SearchMode::Or,

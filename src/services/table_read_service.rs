@@ -20,10 +20,12 @@ use crate::database_models::models::{
     WorkTimeRecordTable,
 };
 use crate::models::{ApiMessage, QueryResult, TablePostRequest};
-use crate::settings::constants::{TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_UPDATE_ROUTE};
+use crate::settings::constants::{
+    TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM, TABLE_UPDATE_ROUTE,
+};
 use crate::utils::{
     TableApiError, fetch_table_rows, fetch_table_rows_from_selector, upsert_table_row,
-    validate_filter_columns, validate_post_request,
+    validate_allowed_schema, validate_filter_columns, validate_post_request,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -91,6 +93,7 @@ macro_rules! collect_table_endpoint_descriptors {
 macro_rules! dispatch_read_table {
     (
         $table_name:expr,
+        $schema_name:expr,
         $request:expr,
         $state:expr,
         $params:expr,
@@ -100,13 +103,13 @@ macro_rules! dispatch_read_table {
         match $table_name {
             $(
                 $registered_table_name => {
-                    read_table::<$model>($request, $state, $params).await
+                    read_table::<$model>($schema_name, $request, $state, $params).await
                 }
             ),+,
             _ => build_error_response(
                 $request_path,
                 TableApiError::InvalidRequest(format!(
-                    "未対応の table_name です: {}",
+                    "Unsupported table_name: {}",
                     $table_name
                 )),
             ),
@@ -117,6 +120,7 @@ macro_rules! dispatch_read_table {
 macro_rules! dispatch_post_read_table {
     (
         $table_name:expr,
+        $schema_name:expr,
         $request_path:expr,
         $state:expr,
         $payload:expr,
@@ -125,13 +129,13 @@ macro_rules! dispatch_post_read_table {
         match $table_name {
             $(
                 $registered_table_name => {
-                    post_read_table::<$model>($request_path, $state, $payload).await
+                    post_read_table::<$model>($schema_name, $request_path, $state, $payload).await
                 }
             ),+,
             _ => build_error_response(
                 $request_path,
                 TableApiError::InvalidRequest(format!(
-                    "未対応の table_name です: {}",
+                    "Unsupported table_name: {}",
                     $table_name
                 )),
             ),
@@ -142,6 +146,7 @@ macro_rules! dispatch_post_read_table {
 macro_rules! dispatch_post_update_table {
     (
         $table_name:expr,
+        $schema_name:expr,
         $request_path:expr,
         $state:expr,
         $payload:expr,
@@ -150,13 +155,13 @@ macro_rules! dispatch_post_update_table {
         match $table_name {
             $(
                 $registered_table_name => {
-                    post_update_table::<$model>($request_path, $state, $payload).await
+                    post_update_table::<$model>($schema_name, $request_path, $state, $payload).await
                 }
             ),+,
             _ => build_error_response(
                 $request_path,
                 TableApiError::InvalidRequest(format!(
-                    "未対応の table_name です: {}",
+                    "Unsupported table_name: {}",
                     $table_name
                 )),
             ),
@@ -177,7 +182,7 @@ pub fn table_endpoint_descriptors() -> Vec<TableEndpointDescriptor> {
     with_table_read_models!(collect_table_endpoint_descriptors)
 }
 
-/// `table_name` クエリパラメータで対象テーブルを選ぶ GET を処理します。
+/// `table_name` と `schema_name` をクエリで受けてテーブル参照を行う。
 pub async fn read_table_by_query(
     request: HttpRequest,
     state: web::Data<AppState>,
@@ -188,14 +193,20 @@ pub async fn read_table_by_query(
         return build_error_response(
             &request_path,
             TableApiError::InvalidRequest(
-                "GET では table_name クエリパラメータを指定してください。".to_string(),
+                "GET requires the table_name query parameter".to_string(),
             ),
         );
+    };
+
+    let schema_name = match resolve_query_schema_name(&params.0, &state) {
+        Ok(schema_name) => schema_name,
+        Err(error) => return build_error_response(&request_path, error),
     };
 
     with_table_read_models!(
         dispatch_read_table,
         table_name,
+        schema_name.as_str(),
         request,
         state,
         params,
@@ -203,7 +214,7 @@ pub async fn read_table_by_query(
     )
 }
 
-/// JSON ボディで検索を行う POST `/read` を処理します。
+/// JSON ボディで条件検索を行う `POST /read` を処理する。
 pub async fn post_read_by_json(
     request: HttpRequest,
     state: web::Data<AppState>,
@@ -219,16 +230,21 @@ pub async fn post_read_by_json(
         return build_error_response(
             &request_path,
             TableApiError::InvalidRequest(
-                "POST /read では JSON の table_name を指定してください。".to_string(),
+                "POST /read requires table_name in the JSON body".to_string(),
             ),
         );
+    };
+
+    let schema_name = match resolve_payload_schema_name(&payload, &state) {
+        Ok(schema_name) => schema_name,
+        Err(error) => return build_error_response(&request_path, error),
     };
 
     if payload.values.is_some() {
         return build_error_response(
             &request_path,
             TableApiError::InvalidRequest(
-                "JSON 検索では values を指定できません。upsert は /system_api_server/si/v1/execute/sql/update を使用してください。".to_string(),
+                "POST /read does not accept values. Use /system_api_server/si/v1/execute/sql/update for upsert".to_string(),
             ),
         );
     }
@@ -236,13 +252,14 @@ pub async fn post_read_by_json(
     with_table_read_models!(
         dispatch_post_read_table,
         table_name,
+        schema_name.as_str(),
         request_path.as_str(),
         state,
         payload
     )
 }
 
-/// JSON ボディで upsert を行う POST `/update` を処理します。
+/// JSON ボディで upsert を行う `POST /update` を処理する。
 pub async fn post_update_by_json(
     request: HttpRequest,
     state: web::Data<AppState>,
@@ -258,16 +275,21 @@ pub async fn post_update_by_json(
         return build_error_response(
             &request_path,
             TableApiError::InvalidRequest(
-                "POST /update では JSON の table_name を指定してください。".to_string(),
+                "POST /update requires table_name in the JSON body".to_string(),
             ),
         );
+    };
+
+    let schema_name = match resolve_payload_schema_name(&payload, &state) {
+        Ok(schema_name) => schema_name,
+        Err(error) => return build_error_response(&request_path, error),
     };
 
     if payload.values.is_none() {
         return build_error_response(
             &request_path,
             TableApiError::InvalidRequest(
-                "upsert では values を指定してください。JSON 検索は /system_api_server/si/v1/execute/sql/read を使用してください。".to_string(),
+                "POST /update requires values in the JSON body".to_string(),
             ),
         );
     }
@@ -275,14 +297,16 @@ pub async fn post_update_by_json(
     with_table_read_models!(
         dispatch_post_update_table,
         table_name,
+        schema_name.as_str(),
         request_path.as_str(),
         state,
         payload
     )
 }
 
-/// 型付き GET 読み取り処理です。
+/// モデルに紐づく GET テーブル参照を実行する。
 pub async fn read_table<R>(
+    schema_name: &str,
     request: HttpRequest,
     state: web::Data<AppState>,
     params: web::Query<HashMap<String, String>>,
@@ -294,14 +318,15 @@ where
         return build_error_response(request.path(), error);
     }
 
-    match fetch_table_rows::<R>(&state.db, &params.0).await {
+    match fetch_table_rows::<R>(&state.db, schema_name, &params.0).await {
         Ok(result) => HttpResponse::Ok().json(result),
         Err(error) => build_error_response(request.path(), error),
     }
 }
 
-/// 型付き POST `/read` 検索処理です。
+/// モデルに紐づく POST `/read` 条件検索を実行する。
 pub async fn post_read_table<R>(
+    schema_name: &str,
     request_path: &str,
     state: web::Data<AppState>,
     payload: TablePostRequest,
@@ -315,6 +340,7 @@ where
 
     match fetch_table_rows_from_selector::<R>(
         &state.db,
+        schema_name,
         &payload.selector,
         payload.search_mode,
         &payload.options,
@@ -326,8 +352,9 @@ where
     }
 }
 
-/// 型付き POST `/update` upsert 処理です。
+/// モデルに紐づく POST `/update` upsert を実行する。
 pub async fn post_update_table<R>(
+    schema_name: &str,
     request_path: &str,
     state: web::Data<AppState>,
     payload: TablePostRequest,
@@ -339,21 +366,62 @@ where
         return build_error_response(request_path, error);
     }
 
-    match upsert_table_row::<R>(&state.db, &payload).await {
+    match upsert_table_row::<R>(&state.db, schema_name, &payload).await {
         Ok(result) => HttpResponse::Ok().json(result),
         Err(error) => build_error_response(request_path, error),
     }
 }
 
+fn resolve_query_schema_name(
+    params: &HashMap<String, String>,
+    state: &AppState,
+) -> Result<String, TableApiError> {
+    resolve_requested_schema(
+        params.get(TABLE_SCHEMA_QUERY_PARAM).map(String::as_str),
+        &state.allowed_schemas,
+        &state.default_schema,
+    )
+}
+
+fn resolve_payload_schema_name(
+    payload: &TablePostRequest,
+    state: &AppState,
+) -> Result<String, TableApiError> {
+    resolve_requested_schema(
+        payload.schema_name.as_deref(),
+        &state.allowed_schemas,
+        &state.default_schema,
+    )
+}
+
+fn resolve_requested_schema(
+    requested_schema_name: Option<&str>,
+    allowed_schemas: &[String],
+    default_schema: &str,
+) -> Result<String, TableApiError> {
+    let schema_name = match requested_schema_name {
+        Some(value) if value.trim().is_empty() => {
+            return Err(TableApiError::InvalidRequest(
+                "schema_name must not be empty".to_string(),
+            ));
+        }
+        Some(value) => value.to_string(),
+        None => default_schema.to_string(),
+    };
+
+    validate_allowed_schema(allowed_schemas, &schema_name)?;
+    Ok(schema_name)
+}
+
 fn parse_post_request(body: &web::Bytes) -> Result<TablePostRequest, TableApiError> {
     if body.is_empty() {
         return Err(TableApiError::InvalidRequest(
-            "POST では JSON ボディを指定してください。".to_string(),
+            "POST requests require a JSON body".to_string(),
         ));
     }
 
     serde_json::from_slice::<TablePostRequest>(body).map_err(|error| {
-        TableApiError::InvalidRequest(format!("JSON ボディの解析に失敗しました: {error}"))
+        TableApiError::InvalidRequest(format!("Failed to parse JSON body: {error}"))
     })
 }
 

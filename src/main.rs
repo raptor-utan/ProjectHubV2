@@ -7,7 +7,8 @@ mod services;
 mod settings;
 mod utils;
 
-use actix_web::{App, HttpServer, web};
+
+use actix_web::{web, App, HttpServer};
 use app_state::build_app_state;
 use std::env;
 
