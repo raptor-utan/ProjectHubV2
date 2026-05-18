@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ProjectHubV2 APIマニュアル</title>
+    <link rel="stylesheet" href="/manual/styles.css">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">ProjectHubV2</p>
+          <h1>APIマニュアル</h1>
+          <p class="lead">
+            読み取り専用テーブルAPIと補助エンドポイントの仕様をまとめた運用ドキュメントです。
+          </p>
+        </div>
+        <div class="hero-actions">
+          <a class="action-link" href="/api/spec">/api/spec</a>
+          <a class="action-link" href="/health">/health</a>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="summary-grid" id="summaryGrid" aria-label="概要"></section>
+
+        <section class="panel" aria-labelledby="overviewTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h2 id="overviewTitle">共通仕様</h2>
+            </div>
+            <p class="stamp" id="generatedAt">読み込み中</p>
+          </div>
+          <ul class="rule-list" id="overviewList"></ul>
+        </section>
+
+        <section class="two-column">
+          <section class="panel" aria-labelledby="supportEndpointsTitle">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Support</p>
+                <h2 id="supportEndpointsTitle">補助エンドポイント</h2>
+              </div>
+            </div>
+            <div class="endpoint-list" id="supportEndpoints"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="tableApiTitle">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Table Read</p>
+                <h2 id="tableApiTitle">テーブルAPIルール</h2>
+              </div>
+            </div>
+            <div class="rule-block">
+              <code class="route-prefix" id="routePrefix"></code>
+              <ul class="rule-list" id="filteringBehavior"></ul>
+            </div>
+            <div class="subsection">
+              <h3>クエリパラメータ</h3>
+              <div class="parameter-list" id="queryParameters"></div>
+            </div>
+            <div class="subsection">
+              <h3>レスポンス</h3>
+              <div class="response-list" id="responses"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel" aria-labelledby="tableEndpointsTitle">
+          <div class="section-head search-head">
+            <div>
+              <p class="eyebrow">Endpoints</p>
+              <h2 id="tableEndpointsTitle">テーブル別API</h2>
+            </div>
+            <label class="search-box" for="tableSearch">
+              <span>検索</span>
+              <input id="tableSearch" type="search" placeholder="テーブル名 / モデル名">
+            </label>
+          </div>
+          <div class="table-cards" id="tableCards"></div>
+          <div class="empty-note" id="emptyNote" hidden>一致するテーブルAPIがありません。</div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/manual/app.js"></script>
+  </body>
+</html>
