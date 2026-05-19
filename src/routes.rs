@@ -2,7 +2,7 @@ use actix_web::http::header::{ContentType, LOCATION};
 use actix_web::{HttpResponse, Responder, get, web};
 
 use crate::app_state::AppState;
-use crate::assets::{MANUAL_CSS, MANUAL_HTML, MANUAL_JS};
+use crate::assets::{GUIDE_CSS, GUIDE_HTML, GUIDE_JS, MANUAL_CSS, MANUAL_HTML, MANUAL_JS};
 use crate::models::HealthStatus;
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
@@ -28,6 +28,7 @@ async fn manual() -> impl Responder {
         .body(MANUAL_HTML)
 }
 
+
 #[get("/manual/styles.css")]
 async fn manual_styles() -> impl Responder {
     HttpResponse::Ok()
@@ -50,4 +51,26 @@ async fn api_spec(data: web::Data<AppState>) -> impl Responder {
 #[get("/health")]
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(HealthStatus { status: "ok" })
+}
+
+
+#[get("/guide")]
+async fn guide() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type(ContentType::html())
+        .body(GUIDE_HTML)
+}
+
+#[get("/guide/style.css")]
+async fn guide_styles() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type(ContentType::html())
+        .body(GUIDE_CSS)
+}
+
+#[get("/guide/app.js")]
+async fn guide_script() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type(ContentType::html())
+        .body(GUIDE_JS)
 }

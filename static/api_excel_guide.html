@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>業務支援システム データ配信API 利用ガイド</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --paper: rgba(255, 250, 243, 0.92);
+      --paper-strong: #fffdf8;
+      --ink: #1f2a30;
+      --sub: #52636d;
+      --line: rgba(31, 42, 48, 0.12);
+      --accent: #006a71;
+      --accent-soft: rgba(0, 106, 113, 0.12);
+      --accent-strong: #0f4f57;
+      --warn: #a45b12;
+      --warn-soft: rgba(164, 91, 18, 0.12);
+      --shadow: 0 18px 45px rgba(38, 41, 47, 0.12);
+      --code-bg: #172126;
+      --code-ink: #eef6f7;
+      --ok: #2e6b36
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(0, 106, 113, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(164, 91, 18, 0.16), transparent 24%),
+        linear-gradient(180deg, #faf7f2 0%, #f0e8db 100%);
+      font-family: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
+      line-height: 1.7;
+    }
+
+    a {
+      color: var(--accent-strong);
+      text-decoration-thickness: 1.5px;
+      text-underline-offset: 0.18em;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .page {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 24px auto 56px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, rgba(255, 253, 248, 0.96), rgba(246, 240, 232, 0.95));
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 34px 34px 26px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -110px auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(0, 106, 113, 0.18), transparent 72%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      font-family: "BIZ UDPMincho", "Yu Mincho", serif;
+      line-height: 1.3;
+      margin: 0 0 14px;
+    }
+
+    h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      margin-top: 16px;
+      max-width: 13em;
+    }
+
+    h2 {
+      font-size: clamp(26px, 3vw, 34px);
+      margin-bottom: 18px;
+    }
+
+    h3 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    .lead {
+      font-size: 18px;
+      max-width: 56em;
+      color: var(--sub);
+    }
+
+    .hero-grid,
+    .summary-grid,
+    .endpoint-grid,
+    .step-grid,
+    .macro-grid,
+    .faq-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero-grid {
+      grid-template-columns: 1.2fr 0.8fr;
+      align-items: start;
+      margin-top: 22px;
+    }
+
+    .summary-grid,
+    .endpoint-grid,
+    .macro-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .step-grid,
+    .faq-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card,
+    .section,
+    .panel,
+    .code-block,
+    .callout,
+    .mini-card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .section {
+      margin-top: 24px;
+      padding: 28px;
+    }
+
+    .card,
+    .panel,
+    .mini-card {
+      padding: 20px;
+    }
+
+    .callout {
+      padding: 18px 20px;
+      background: linear-gradient(135deg, rgba(0, 106, 113, 0.1), rgba(255, 253, 248, 0.92));
+    }
+
+    .callout.warn {
+      background: linear-gradient(135deg, rgba(164, 91, 18, 0.12), rgba(255, 251, 245, 0.94));
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .badge.get {
+      background: rgba(46, 107, 54, 0.12);
+      color: var(--ok);
+    }
+
+    .badge.post {
+      background: rgba(0, 106, 113, 0.14);
+      color: var(--accent-strong);
+    }
+
+    .badge.point {
+      background: rgba(31, 42, 48, 0.08);
+      color: var(--ink);
+    }
+
+    .toc {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .toc a {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.66);
+      text-decoration: none;
+      border: 1px solid rgba(31, 42, 48, 0.08);
+    }
+
+    .toc a:hover {
+      background: rgba(0, 106, 113, 0.08);
+    }
+
+    .small {
+      font-size: 14px;
+      color: var(--sub);
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 1.2em;
+    }
+
+    .list li + li {
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      background: var(--paper-strong);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(0, 106, 113, 0.08);
+      font-size: 14px;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .code-block {
+      padding: 0;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: #10181c;
+      color: #c1d3d5;
+      font-size: 13px;
+    }
+
+    .copy-button {
+      border: 1px solid rgba(193, 211, 213, 0.28);
+      background: rgba(255, 255, 255, 0.05);
+      color: #eaf7f8;
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .copy-button:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .endpoint-path {
+      display: block;
+      font-size: 14px;
+      color: var(--sub);
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 10px;
+    }
+
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .note-box {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px dashed rgba(31, 42, 48, 0.16);
+      margin-top: 12px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .footer {
+      margin-top: 24px;
+      padding: 18px 20px;
+      color: var(--sub);
+      font-size: 14px;
+    }
+
+    @media (max-width: 960px) {
+      .hero-grid,
+      .summary-grid,
+      .endpoint-grid,
+      .step-grid,
+      .macro-grid,
+      .faq-grid,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      .hero,
+      .section {
+        padding: 22px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        width: min(100vw - 16px, 100%);
+        margin-top: 12px;
+      }
+
+      .hero,
+      .section {
+        border-radius: 18px;
+        padding: 18px;
+      }
+
+      table,
+      thead,
+      tbody,
+      th,
+      td,
+      tr {
+        display: block;
+      }
+
+      thead {
+        display: none;
+      }
+
+      td {
+        padding: 10px 12px;
+      }
+
+      td::before {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--sub);
+        margin-bottom: 4px;
+      }
+
+      td[data-label]::before {
+        content: attr(data-label);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <span class="eyebrow">Excel Macro Friendly Guide</span>
+      <h1>ソリューション製造部 業務支援システム データ配信API 利用ガイド</h1>
+      <p class="lead">
+        このAPIは、データベースのテーブル一覧取得、テーブルコメント取得、カラムコメント取得、データ検索、データ更新をHTTPで実行するためのものです。
+        このページは、Excelマクロから使う方を前提に、専門用語をできるだけ減らし、すぐ試せるVBAサンプル付きでまとめています。
+      </p>
+      <div class="hero-grid">
+        <div class="callout">
+          <h3>最初に押さえる3点</h3>
+          <ul class="list">
+            <li>接続先の基本URLは通常 <code>http://10.8.9.230:8810</code> です。</li>
+            <li>まずは <code>show_tables</code> でテーブル名を確認し、必要に応じてコメントAPIで意味を確認します。</li>
+            <li>更新APIは「条件に合う1件目」を更新します。条件はできるだけ一意になるようにしてください。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>目次</h3>
+          <ul class="toc">
+            <li><a href="#overview">APIの全体像</a></li>
+            <li><a href="#endpoints">エンドポイント一覧</a></li>
+            <li><a href="#excel-start">Excelマクロで始める手順</a></li>
+            <li><a href="#vba-samples">VBAサンプル集</a></li>
+            <li><a href="#errors">よくあるエラー</a></li>
+            <li><a href="#faq">よくある質問</a></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="overview">
+      <h2>APIの全体像</h2>
+      <div class="summary-grid">
+        <div class="card">
+          <h3>このAPIでできること</h3>
+          <ul class="list">
+            <li>利用可能なテーブル名の一覧取得</li>
+            <li>利用可能なテーブルコメント、カラムコメントの一覧取得</li>
+            <li>条件を指定してデータを検索</li>
+            <li>条件に合うデータの更新、または新規作成</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>利用時の前提</h3>
+          <ul class="list">
+            <li>リクエスト形式はJSONです。</li>
+            <li>認証ヘッダーは実装上は必須ではありません。</li>
+            <li>レスポンスもJSONで返ります。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="pill-row">
+        <span class="badge point">基本URL: <code>http://10.8.9.230:8810</code></span>
+        <span class="badge point">文字コード: <code>UTF-8</code></span>
+        <span class="badge point">Content-Type: <code>application/json</code></span>
+      </div>
+
+      <div class="callout warn">
+        <strong>初心者向けの安全な使い方</strong><br>
+        まずは <code>show_tables</code> でテーブル名を取得し、必要に応じて <code>table/comments</code> と <code>table/column/comments</code> で説明を確認し、
+        次に <code>read</code> で1件読んで列名を確認し、その後に <code>update</code> を使う流れがおすすめです。
+        特に <code>update</code> で使う <code>values</code> の列名は、実際のレスポンスに出てきた名前をそのまま使ってください。
+      </div>
+
+      <h3>用語をやさしく整理</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>用語</th>
+            <th>意味</th>
+            <th>例</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="用語"><code>table_name</code></td>
+            <td data-label="意味">対象テーブル名です。</td>
+            <td data-label="例"><code>ifs_projects_table</code></td>
+          </tr>
+          <tr>
+            <td data-label="用語"><code>selector</code></td>
+            <td data-label="意味">どのデータを探すかの条件です。</td>
+            <td data-label="例"><code>{"project_id":"1AS0006368"}</code></td>
+          </tr>
+          <tr>
+            <td data-label="用語"><code>search_mode</code></td>
+            <td data-label="意味">条件をANDで見るか、ORで見るかです。</td>
+            <td data-label="例"><code>and_</code> / <code>or_</code></td>
+          </tr>
+          <tr>
+            <td data-label="用語"><code>values</code></td>
+            <td data-label="意味">更新したい列と値です。</td>
+            <td data-label="例"><code>{"status":"done"}</code></td>
+          </tr>
+          <tr>
+            <td data-label="用語"><code>options</code></td>
+            <td data-label="意味">並び順や件数制限です。</td>
+            <td data-label="例"><code>{"order_by":"updated_at","limit":1}</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" id="endpoints">
+      <h2>エンドポイント一覧</h2>
+      <div class="endpoint-grid">
+        <article class="card">
+          <span class="badge get">GET</span>
+          <h3>テーブル一覧取得</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/script/show_tables</span>
+          <p>使えるテーブル名を一覧で返します。最初にここを呼ぶと、入力ミスを減らせます。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>レスポンス例</span>
+              <button class="copy-button" data-copy-target="tables-response">コピー</button>
+            </div>
+            <pre id="tables-response">{
+  "result": [
+    "ifs_projects_table",
+    "system_processes_table"
+  ]
+}</pre>
+          </div>
+        </article>
+
+        <article class="card">
+          <span class="badge get">GET</span>
+          <h3>テーブルコメント一覧取得</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/script/show_tables/table/comments/</span>
+          <p>指定スキーマ内のテーブル名とテーブルコメントを一覧で返します。クエリ文字列の <code>schema</code> は省略時に <code>ifs_reference_data</code> が使われます。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>必須</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="項目"><code>schema</code></td>
+                <td data-label="必須">任意</td>
+                <td data-label="内容">対象スキーマ名。省略時は <code>ifs_reference_data</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="code-block">
+            <div class="code-head">
+              <span>レスポンス例</span>
+              <button class="copy-button" data-copy-target="table-comments-response">コピー</button>
+            </div>
+            <pre id="table-comments-response">[
+  {
+    "TABLE_NAME": "ifs_projects_table",
+    "TABLE_COMMENT": "案件マスタ"
+  },
+  {
+    "TABLE_NAME": "system_processes_table",
+    "TABLE_COMMENT": "システム処理マスタ"
+  }
+]</pre>
+          </div>
+        </article>
+
+        <article class="card">
+          <span class="badge get">GET</span>
+          <h3>カラムコメント一覧取得</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/script/show_tables/table/column/comments/</span>
+          <p>指定スキーマ内のテーブル名、カラム名、カラムコメントを一覧で返します。列の意味を先に確認したいときに便利です。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>必須</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="項目"><code>schema</code></td>
+                <td data-label="必須">任意</td>
+                <td data-label="内容">対象スキーマ名。省略時は <code>ifs_reference_data</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="code-block">
+            <div class="code-head">
+              <span>レスポンス例</span>
+              <button class="copy-button" data-copy-target="column-comments-response">コピー</button>
+            </div>
+            <pre id="column-comments-response">[
+  {
+    "TABLE_NAME": "ifs_projects_table",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_COMMENT": "案件ID"
+  },
+  {
+    "TABLE_NAME": "ifs_projects_table",
+    "COLUMN_NAME": "project_name",
+    "COLUMN_COMMENT": "案件名"
+  }
+]</pre>
+          </div>
+        </article>
+
+        <article class="card">
+          <span class="badge post">POST</span>
+          <h3>データ検索</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/sql/read</span>
+          <p>条件に合うデータを配列で返します。0件でもエラーではなく、<code>result: []</code> になります。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>必須</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="項目"><code>table_name</code></td>
+                <td data-label="必須">必須</td>
+                <td data-label="内容">検索対象のテーブル名</td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>selector</code></td>
+                <td data-label="必須">必須</td>
+                <td data-label="内容">検索条件。初心者向けには <code>{...}</code> の形式推奨</td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>search_mode</code></td>
+                <td data-label="必須">任意</td>
+                <td data-label="内容"><code>and_</code> または <code>or_</code>。省略時は <code>or_</code></td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>options</code></td>
+                <td data-label="必須">任意</td>
+                <td data-label="内容">件数制限や並び順。並び順は現在の実装では降順です</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <span class="badge post">POST</span>
+          <h3>データ更新または新規作成</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/sql/update</span>
+          <p>
+            条件に合うデータがあれば先頭1件を更新し、なければ新規作成します。
+            新規作成時だけ <code>created_id</code> に値が入る可能性があります。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>必須</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="項目"><code>table_name</code></td>
+                <td data-label="必須">必須</td>
+                <td data-label="内容">更新対象テーブル名</td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>selector</code></td>
+                <td data-label="必須">必須</td>
+                <td data-label="内容">どの行を更新するかの条件。新規作成も使うため、通常はオブジェクト形式推奨</td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>values</code></td>
+                <td data-label="必須">必須</td>
+                <td data-label="内容">更新したい列と値</td>
+              </tr>
+              <tr>
+                <td data-label="項目"><code>search_mode</code></td>
+                <td data-label="必須">任意</td>
+                <td data-label="内容"><code>and_</code> または <code>or_</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <h3>検索のコツ</h3>
+          <ul class="list">
+            <li>完全一致にしたいときはそのまま指定します。例: <code>{"project_id":"1AS0006368"}</code></li>
+            <li>部分一致にしたいときは値に <code>%</code> を含めます。例: <code>{"project_name":"%設備%"}</code></li>
+            <li>更新APIは複数件ヒットしても先頭1件だけ更新します。条件は絞ってください。</li>
+            <li>まずは <code>and_</code> を使うほうが事故が少ないです。</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="two-col" style="margin-top: 18px;">
+        <div class="panel">
+          <h3>テーブルコメント取得例</h3>
+          <p class="small"><code>schema</code> を省略した場合は <code>ifs_reference_data</code> が使われます。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>GET /execute/script/show_tables/table/comments/</span>
+              <button class="copy-button" data-copy-target="table-comments-request">コピー</button>
+            </div>
+            <pre id="table-comments-request">/system_api_server/si/v1/execute/script/show_tables/table/comments/?schema=ifs_reference_data</pre>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>テーブルコメントレスポンス例</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>JSON response</span>
+              <button class="copy-button" data-copy-target="table-comments-response-panel">コピー</button>
+            </div>
+            <pre id="table-comments-response-panel">[
+  {
+    "TABLE_NAME": "ifs_projects_table",
+    "TABLE_COMMENT": "案件マスタ"
+  }
+]</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top: 18px;">
+        <div class="panel">
+          <h3>カラムコメント取得例</h3>
+          <p class="small">対象スキーマ配下の全カラムが返るため、必要な <code>TABLE_NAME</code> で絞って確認してください。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>GET /execute/script/show_tables/table/column/comments/</span>
+              <button class="copy-button" data-copy-target="column-comments-request">コピー</button>
+            </div>
+            <pre id="column-comments-request">/system_api_server/si/v1/execute/script/show_tables/table/column/comments/?schema=ifs_reference_data</pre>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>カラムコメントレスポンス例</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>JSON response</span>
+              <button class="copy-button" data-copy-target="column-comments-response-panel">コピー</button>
+            </div>
+            <pre id="column-comments-response-panel">[
+  {
+    "TABLE_NAME": "ifs_projects_table",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_COMMENT": "案件ID"
+  }
+]</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top: 18px;">
+        <div class="panel">
+          <h3>検索リクエスト例</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>POST /execute/sql/read</span>
+              <button class="copy-button" data-copy-target="read-json">コピー</button>
+            </div>
+            <pre id="read-json">{
+  "table_name": "ifs_projects_table",
+  "search_mode": "and_",
+  "selector": {
+    "project_id": "1AS0006368"
+  }
+}</pre>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>検索レスポンス例</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>JSON response</span>
+              <button class="copy-button" data-copy-target="read-response">コピー</button>
+            </div>
+            <pre id="read-response">{
+  "result": [
+    {
+      "id": 12,
+      "project_id": "1AS0006368",
+      "project_name": "サンプル案件"
+    }
+  ]
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top: 18px;">
+        <div class="panel">
+          <h3>更新リクエスト例</h3>
+          <p class="small">実際に使うときは、<code>your_column_name</code> を実在する列名に置き換えてください。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>POST /execute/sql/update</span>
+              <button class="copy-button" data-copy-target="update-json">コピー</button>
+            </div>
+            <pre id="update-json">{
+  "table_name": "ifs_projects_table",
+  "search_mode": "and_",
+  "selector": {
+    "project_id": "1AS0006368"
+  },
+  "values": {
+    "your_column_name": "新しい値"
+  }
+}</pre>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>更新レスポンス例</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>JSON response</span>
+              <button class="copy-button" data-copy-target="update-response">コピー</button>
+            </div>
+            <pre id="update-response">{
+  "header": "Access-Control-Allow-Origin",
+  "result": "update",
+  "created_id": null
+}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="excel-start">
+      <h2>Excelマクロで始める手順</h2>
+      <div class="step-grid">
+        <div class="mini-card">
+          <div class="step-num">1</div>
+          <h3>URLを決める</h3>
+          <p>同じPC上でAPIを動かしているなら、基本URLは <code>http://10.8.9.230:8810</code> です。別サーバーなら、そのホスト名またはIPに置き換えます。</p>
+        </div>
+        <div class="mini-card">
+          <div class="step-num">2</div>
+          <h3>VBAエディタを開く</h3>
+          <p><code>Alt + F11</code> を押し、標準モジュールを1つ追加します。サンプルコードはそのまま貼り付けて使えます。</p>
+        </div>
+        <div class="mini-card">
+          <div class="step-num">3</div>
+          <h3>まず一覧取得</h3>
+          <p>最初は <code>show_tables</code> を呼び、通信できているかを確認します。テーブルや列の意味を確認したい場合はコメント取得APIを先に使い、その後に検索、最後に更新へ進むのが安全です。</p>
+        </div>
+      </div>
+
+      <div class="callout" style="margin-top: 18px;">
+        <strong>参照設定は不要です。</strong><br>
+        以下のサンプルは <code>CreateObject("WinHttp.WinHttpRequest.5.1")</code> を使っているため、VBAの参照設定を追加しなくても動かしやすい構成です。
+      </div>
+    </section>
+
+    <section class="section" id="vba-samples">
+      <h2>VBAサンプル集</h2>
+      <p>
+        下のコードはそのまま標準モジュールに貼り付けて使えます。
+        まずはレスポンス文字列をシートに出すところから始めると理解しやすいです。
+      </p>
+
+      <div class="macro-grid">
+        <div class="panel">
+          <h3>共通部品</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>標準モジュールの先頭に貼り付け</span>
+              <button class="copy-button" data-copy-target="vba-common">コピー</button>
+            </div>
+            <pre id="vba-common">Option Explicit
+
+Private Const BASE_URL As String = "http://10.8.9.230:8810"
+
+Private Function SendJsonRequest(ByVal httpMethod As String, ByVal path As String, Optional ByVal jsonBody As String = "") As String
+    Dim http As Object
+    Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
+
+    http.Open httpMethod, BASE_URL & path, False
+    http.SetRequestHeader "Content-Type", "application/json; charset=utf-8"
+    http.Send jsonBody
+
+    If http.Status &lt;&gt; 200 Then
+        Err.Raise vbObjectError + 513, "API Error", _
+            "HTTP " &amp; http.Status &amp; vbCrLf &amp; http.ResponseText
+    End If
+
+    SendJsonRequest = http.ResponseText
+End Function</pre>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>1. テーブル一覧を取得する</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleShowTables</span>
+              <button class="copy-button" data-copy-target="vba-tables">コピー</button>
+            </div>
+            <pre id="vba-tables">Sub SampleShowTables()
+    Dim responseText As String
+
+    responseText = SendJsonRequest( _
+        "GET", _
+        "/system_api_server/si/v1/execute/script/show_tables" _
+    )
+
+    Sheet1.Range("A1").Value = "テーブル一覧"
+    Sheet1.Range("A2").Value = responseText
+    MsgBox "取得完了: A2セルを確認してください。"
+End Sub</pre>
+          </div>
+          <div class="note-box">
+            まずこのマクロで通信確認をしてください。ここで失敗する場合、URLまたはAPIサーバー起動状態を確認します。
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>2. テーブルコメントを取得する</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleShowTableComments</span>
+              <button class="copy-button" data-copy-target="vba-table-comments">コピー</button>
+            </div>
+            <pre id="vba-table-comments">Sub SampleShowTableComments()
+    Dim responseText As String
+
+    responseText = SendJsonRequest( _
+        "GET", _
+        "/system_api_server/si/v1/execute/script/show_tables/table/comments/?schema=ifs_reference_data" _
+    )
+
+    Sheet1.Range("C1").Value = "テーブルコメント一覧"
+    Sheet1.Range("C2").Value = responseText
+    MsgBox "取得完了: C2セルを確認してください。"
+End Sub</pre>
+          </div>
+          <div class="note-box">
+            レスポンスはスキーマ内の全テーブル分です。まずExcelに出して、必要な <code>TABLE_NAME</code> を探す使い方が簡単です。
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>3. カラムコメントを取得する</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleShowTableColumnComments</span>
+              <button class="copy-button" data-copy-target="vba-column-comments">コピー</button>
+            </div>
+            <pre id="vba-column-comments">Sub SampleShowTableColumnComments()
+    Dim responseText As String
+
+    responseText = SendJsonRequest( _
+        "GET", _
+        "/system_api_server/si/v1/execute/script/show_tables/table/column/comments/?schema=ifs_reference_data" _
+    )
+
+    Sheet1.Range("E1").Value = "カラムコメント一覧"
+    Sheet1.Range("E2").Value = responseText
+    MsgBox "取得完了: E2セルを確認してください。"
+End Sub</pre>
+          </div>
+          <div class="note-box">
+            <code>TABLE_NAME</code>、<code>COLUMN_NAME</code>、<code>COLUMN_COMMENT</code> が返るので、更新前の列名確認にも使えます。
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>4. 1件読み取る</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleReadProject</span>
+              <button class="copy-button" data-copy-target="vba-read">コピー</button>
+            </div>
+            <pre id="vba-read">Sub SampleReadProject()
+    Dim requestBody As String
+    Dim responseText As String
+
+    requestBody = Join(Array( _
+        "{", _
+        "  ""table_name"": ""ifs_projects_table"",", _
+        "  ""search_mode"": ""and_"",", _
+        "  ""selector"": {", _
+        "    ""project_id"": ""1AS0006368""", _
+        "  }", _
+        "}" _
+    ), vbCrLf)
+
+    responseText = SendJsonRequest( _
+        "POST", _
+        "/system_api_server/si/v1/execute/sql/read", _
+        requestBody _
+    )
+
+    Sheet1.Range("A4").Value = "検索結果"
+    Sheet1.Range("A5").Value = responseText
+    MsgBox "検索結果をA5セルに出力しました。"
+End Sub</pre>
+          </div>
+          <div class="note-box">
+            最初は <code>responseText</code> をそのままセルへ出して、どんな列名が返ってくるか確認するのがおすすめです。
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>5. 更新する</h3>
+          <p class="small">列名は実際のレスポンスを見て置き換えてください。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleUpdateRow</span>
+              <button class="copy-button" data-copy-target="vba-update">コピー</button>
+            </div>
+            <pre id="vba-update">Sub SampleUpdateRow()
+    Dim requestBody As String
+    Dim responseText As String
+
+    requestBody = Join(Array( _
+        "{", _
+        "  ""table_name"": ""ifs_projects_table"",", _
+        "  ""search_mode"": ""and_"",", _
+        "  ""selector"": {", _
+        "    ""project_id"": ""1AS0006368""", _
+        "  },", _
+        "  ""values"": {", _
+        "    ""your_column_name"": ""新しい値""", _
+        "  }", _
+        "}" _
+    ), vbCrLf)
+
+    responseText = SendJsonRequest( _
+        "POST", _
+        "/system_api_server/si/v1/execute/sql/update", _
+        requestBody _
+    )
+
+    Sheet1.Range("A7").Value = "更新結果"
+    Sheet1.Range("A8").Value = responseText
+    MsgBox "更新結果をA8セルに出力しました。"
+End Sub</pre>
+          </div>
+          <div class="note-box">
+            <strong>重要:</strong> このAPIは条件に合った先頭1件を更新します。複数件ヒットする条件では意図しない更新になりやすいため、主キー相当の列で絞る運用を推奨します。
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 18px;">
+        <h3>シートの値を使って検索する例</h3>
+        <p>セルの値をそのまま検索条件に入れたいときの最小例です。</p>
+        <div class="code-block">
+          <div class="code-head">
+            <span>セル入力版</span>
+            <button class="copy-button" data-copy-target="vba-sheet-input">コピー</button>
+          </div>
+          <pre id="vba-sheet-input">Sub ReadBySheetValue()
+    Dim projectId As String
+    Dim requestBody As String
+    Dim responseText As String
+
+    projectId = Trim$(Sheet1.Range("B1").Value)
+    projectId = Replace(projectId, """", "")
+
+    If projectId = "" Then
+        MsgBox "B1セルに project_id を入力してください。"
+        Exit Sub
+    End If
+
+    requestBody = Join(Array( _
+        "{", _
+        "  ""table_name"": ""ifs_projects_table"",", _
+        "  ""search_mode"": ""and_"",", _
+        "  ""selector"": {", _
+        "    ""project_id"": """ &amp; projectId &amp; """", _
+        "  }", _
+        "}" _
+    ), vbCrLf)
+
+    responseText = SendJsonRequest( _
+        "POST", _
+        "/system_api_server/si/v1/execute/sql/read", _
+        requestBody _
+    )
+
+    Sheet1.Range("B3").Value = responseText
+End Sub</pre>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 18px;">
+        <h3>JSONを表として扱いたい場合</h3>
+        <p>
+          Excel VBAには標準のJSONパーサーがないため、レスポンスを項目ごとに使いたい場合は
+          <code>VBA-JSON</code> などのJSON解析モジュールを入れる方法が現実的です。
+          まずは上のサンプルで通信確認し、必要になった段階でJSON解析を追加してください。
+        </p>
+        <div class="code-block">
+          <div class="code-head">
+            <span>VBA-JSON を使う場合のイメージ</span>
+            <button class="copy-button" data-copy-target="vba-json-parse">コピー</button>
+          </div>
+          <pre id="vba-json-parse">Sub ReadAndPutFirstRow()
+    Dim responseText As String
+    Dim json As Object
+    Dim rows As Object
+    Dim firstRow As Object
+
+    responseText = SendJsonRequest( _
+        "POST", _
+        "/system_api_server/si/v1/execute/sql/read", _
+        "{""table_name"":""ifs_projects_table"",""search_mode"":""and_"",""selector"":{""project_id"":""1AS0006368""}}" _
+    )
+
+    Set json = JsonConverter.ParseJson(responseText)
+    Set rows = json("result")
+
+    If rows.Count = 0 Then
+        MsgBox "該当データがありません。"
+        Exit Sub
+    End If
+
+    Set firstRow = rows(1)
+    Sheet1.Range("D1").Value = firstRow("project_id")
+    Sheet1.Range("D2").Value = firstRow("project_name")
+End Sub</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="errors">
+      <h2>よくあるエラー</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>HTTPステータス</th>
+            <th>起きやすい原因</th>
+            <th>対応</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="HTTPステータス"><code>400</code></td>
+            <td data-label="起きやすい原因">存在しない列名を <code>values</code> に入れた。新規作成扱いなのに <code>selector</code> がオブジェクト形式でない。</td>
+            <td data-label="対応">まず <code>read</code> または <code>table/column/comments</code> で列名を確認し、同じ名前を使ってください。</td>
+          </tr>
+          <tr>
+            <td data-label="HTTPステータス"><code>404</code></td>
+            <td data-label="起きやすい原因"><code>table_name</code> が存在しない。</td>
+            <td data-label="対応"><code>show_tables</code> の結果からコピペしてください。</td>
+          </tr>
+          <tr>
+            <td data-label="HTTPステータス"><code>500</code></td>
+            <td data-label="起きやすい原因">DB接続設定、SQL実行失敗、内部例外。</td>
+            <td data-label="対応">APIサーバー側ログを確認してください。VBA側では <code>ResponseText</code> を残しておくと切り分けやすいです。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn" style="margin-top: 18px;">
+        <strong>更新前の確認ポイント</strong><br>
+        1. 対象テーブル名は正しいか<br>
+        2. 条件は1件に絞れているか<br>
+        3. 列名はレスポンスで確認した綴りと一致しているか<br>
+        4. 本番データなら、まず読み取りで対象行を確認したか
+      </div>
+    </section>
+
+    <section class="section" id="faq">
+      <h2>よくある質問</h2>
+      <div class="faq-grid">
+        <div class="mini-card">
+          <h3>Q. 読み取りで0件でも正常ですか。</h3>
+          <p>A. 正常です。レスポンスは <code>{"result":[]}</code> の形になります。</p>
+        </div>
+        <div class="mini-card">
+          <h3>Q. 部分一致はできますか。</h3>
+          <p>A. できます。値に <code>%</code> を含めてください。例: <code>%設備%</code></p>
+        </div>
+        <div class="mini-card">
+          <h3>Q. 複数件まとめて更新できますか。</h3>
+          <p>A. 現在の実装では先頭1件更新です。複数件一括更新APIではありません。</p>
+        </div>
+        <div class="mini-card">
+          <h3>Q. テーブルや列の意味を先に確認できますか。</h3>
+          <p>A. できます。<code>/show_tables/table/comments/</code> と <code>/show_tables/table/column/comments/</code> でコメント一覧を取得してください。</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer card">
+      このドキュメントの想定URLは <code>http://10.8.9.230:8810</code>、想定パスは
+      <code>/system_api_server/si/v1/execute/...</code> です。利用環境が異なる場合は、基本URLだけ置き換えてください。
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".copy-button").forEach(function (button) {
+      button.addEventListener("click", async function () {
+        var targetId = button.getAttribute("data-copy-target");
+        var target = document.getElementById(targetId);
+        if (!target) {
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(target.innerText);
+          var original = button.textContent;
+          button.textContent = "コピー済み";
+          setTimeout(function () {
+            button.textContent = original;
+          }, 1200);
+        } catch (error) {
+          button.textContent = "失敗";
+          setTimeout(function () {
+            button.textContent = "コピー";
+          }, 1200);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

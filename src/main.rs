@@ -10,8 +10,8 @@ use actix_web::{App, HttpServer, web};
 use app_state::build_app_state;
 use std::env;
 
-const DEFAULT_HOST: &str = "127.0.0.1";
-const DEFAULT_PORT: u16 = 8080;
+const DEFAULT_HOST: &str = "0.0.0.0";
+const DEFAULT_PORT: u16 = 8810;
 
 fn build_bind_address() -> String {
     // let host = env::var("PROJECT_HUB_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
