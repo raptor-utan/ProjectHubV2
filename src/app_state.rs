@@ -16,7 +16,7 @@ const DEFAULT_DB_MAX_CONNECTIONS: u32 = 10;
 const ALLOWED_SCHEMAS_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_SCHEMAS";
 const ALLOWED_TABLES_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_TABLES";
 const DEFAULT_SCHEMA_ENV_NAME: &str = "PROJECT_HUB_DEFAULT_SCHEMA";
-const SQL_DIRECTORY_NAME: &str = "sql";
+const SQL_DIRECTORY_NAME: &str = "./sql";
 
 #[derive(Clone, Debug)]
 struct DatabaseConnectionParts {
@@ -177,7 +177,7 @@ fn read_allowed_tables(
         return allowed_tables;
     }
 
-    let sql_directory_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SQL_DIRECTORY_NAME);
+    let sql_directory_path = PathBuf::from(format!("{}", SQL_DIRECTORY_NAME));
     let directory_entries = fs::read_dir(&sql_directory_path).unwrap_or_else(|error| {
         panic!(
             "Failed to read SQL directory {}: {error}",

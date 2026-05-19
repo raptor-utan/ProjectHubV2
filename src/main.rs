@@ -6,7 +6,8 @@ mod services;
 mod settings;
 mod utils;
 
-use actix_web::{App, HttpServer, web};
+use actix_cors::Cors;
+use actix_web::{App, HttpServer, web, http};
 use app_state::build_app_state;
 use std::env;
 
@@ -37,7 +38,14 @@ async fn main() -> std::io::Result<()> {
 
     println!("ProjectHubV2 listening on http://{bind_address}");
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allow_any_header()
+            .max_age(3600);
+
         App::new()
+            .wrap(cors)
             .app_data(state.clone())
             .configure(routes::configure_routes)
             .configure(services::table_read_service::configure)
