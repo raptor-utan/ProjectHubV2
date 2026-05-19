@@ -71,10 +71,19 @@ pub struct ApiSpecification {
     pub generated_at: String,
     pub overview: Vec<String>,
     pub allowed_schemas: Vec<String>,
+    pub allowed_schema_specs: Vec<AllowedSchemaSpec>,
     pub support_endpoints: Vec<SupportEndpointSpec>,
     pub table_get_api: TableGetApiSpec,
     pub table_post_api: TablePostApiSpec,
     pub table_endpoints: Vec<TableEndpointSpec>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AllowedSchemaSpec {
+    pub schema_name: String,
+    pub is_default: bool,
+    pub schema_found: bool,
+    pub table_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -121,6 +130,7 @@ pub struct ResponseSpec {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TableEndpointSpec {
+    pub schema_name: String,
     pub table_name: String,
     pub model_name: String,
     pub path: String,

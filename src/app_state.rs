@@ -1,18 +1,22 @@
 use dotenvy::from_path;
 use sqlx::MySqlPool;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+use std::collections::BTreeSet;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::models::ApiSpecification;
-use crate::services::api_spec_service::build_api_spec;
+use crate::services::api_spec_service::{TableAllowlistEntry, build_api_spec};
 
 const DOTENV_FILE_NAME: &str = ".env";
 const DEFAULT_DB_PORT: u16 = 3306;
 const DEFAULT_DB_MAX_CONNECTIONS: u32 = 10;
 const ALLOWED_SCHEMAS_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_SCHEMAS";
+const ALLOWED_TABLES_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_TABLES";
 const DEFAULT_SCHEMA_ENV_NAME: &str = "PROJECT_HUB_DEFAULT_SCHEMA";
+const SQL_DIRECTORY_NAME: &str = "sql";
 
 #[derive(Clone, Debug)]
 struct DatabaseConnectionParts {
@@ -108,6 +112,13 @@ fn validate_configured_schema_name(schema_name: &str, config_name: &str) {
     );
 }
 
+fn validate_configured_table_name(table_name: &str, config_name: &str) {
+    assert!(
+        is_safe_identifier(table_name),
+        "Invalid table name in {config_name}: {table_name}"
+    );
+}
+
 fn parse_schema_list(value: &str) -> Vec<String> {
     let mut schemas = Vec::new();
 
@@ -151,6 +162,214 @@ fn read_allowed_schemas(default_schema: &str) -> Vec<String> {
     );
 
     allowed_schemas
+}
+
+fn read_allowed_tables(
+    default_schema: &str,
+    allowed_schemas: &[String],
+) -> Vec<TableAllowlistEntry> {
+    if let Some(value) = read_optional_env_var(ALLOWED_TABLES_ENV_NAME) {
+        let allowed_tables = parse_table_list(&value, default_schema, allowed_schemas);
+        assert!(
+            !allowed_tables.is_empty(),
+            "{ALLOWED_TABLES_ENV_NAME} must contain at least one table name"
+        );
+        return allowed_tables;
+    }
+
+    let sql_directory_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SQL_DIRECTORY_NAME);
+    let directory_entries = fs::read_dir(&sql_directory_path).unwrap_or_else(|error| {
+        panic!(
+            "Failed to read SQL directory {}: {error}",
+            sql_directory_path.display()
+        )
+    });
+    let allowed_schema_names = allowed_schemas
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let mut allowed_tables = BTreeSet::new();
+
+    for directory_entry in directory_entries {
+        let entry = directory_entry.unwrap_or_else(|error| {
+            panic!(
+                "Failed to enumerate SQL directory {}: {error}",
+                sql_directory_path.display()
+            )
+        });
+        let file_path = entry.path();
+
+        if !file_path.is_file()
+            || file_path.extension().and_then(|value| value.to_str()) != Some("sql")
+        {
+            continue;
+        }
+
+        let file_stem = file_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let file_contents = fs::read_to_string(&file_path).unwrap_or_else(|error| {
+            panic!("Failed to read SQL file {}: {error}", file_path.display())
+        });
+
+        for entry in
+            parse_allowed_tables_from_sql(&file_contents, &file_stem, &allowed_schema_names)
+        {
+            allowed_tables.insert(entry);
+        }
+    }
+
+    allowed_tables.into_iter().collect()
+}
+
+fn parse_table_list(
+    value: &str,
+    default_schema: &str,
+    allowed_schemas: &[String],
+) -> Vec<TableAllowlistEntry> {
+    let mut allowed_tables = Vec::new();
+    let mut seen_tables = BTreeSet::new();
+
+    for raw_entry in value
+        .split(|character| matches!(character, ',' | ';' | '\n' | '\r'))
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
+        let entry = parse_table_entry(raw_entry, default_schema, allowed_schemas);
+
+        if seen_tables.insert((entry.schema_name.clone(), entry.table_name.clone())) {
+            allowed_tables.push(entry);
+        }
+    }
+
+    allowed_tables
+}
+
+fn parse_table_entry(
+    raw_entry: &str,
+    default_schema: &str,
+    allowed_schemas: &[String],
+) -> TableAllowlistEntry {
+    let (schema_name, table_name) = match raw_entry.split_once('.') {
+        Some((schema_name, table_name)) => {
+            let schema_name = normalize_identifier(schema_name).unwrap_or_else(|| {
+                panic!("Invalid schema.table entry in {ALLOWED_TABLES_ENV_NAME}: {raw_entry}")
+            });
+            let table_name = normalize_identifier(table_name).unwrap_or_else(|| {
+                panic!("Invalid schema.table entry in {ALLOWED_TABLES_ENV_NAME}: {raw_entry}")
+            });
+
+            (schema_name, table_name)
+        }
+        None => {
+            let table_name = normalize_identifier(raw_entry).unwrap_or_else(|| {
+                panic!("Invalid table entry in {ALLOWED_TABLES_ENV_NAME}: {raw_entry}")
+            });
+
+            (default_schema.to_string(), table_name)
+        }
+    };
+
+    validate_configured_schema_name(&schema_name, ALLOWED_TABLES_ENV_NAME);
+    validate_configured_table_name(&table_name, ALLOWED_TABLES_ENV_NAME);
+    assert!(
+        allowed_schemas
+            .iter()
+            .any(|allowed_schema| allowed_schema == &schema_name),
+        "Schema {schema_name} in {ALLOWED_TABLES_ENV_NAME} must be included in {ALLOWED_SCHEMAS_ENV_NAME}"
+    );
+
+    TableAllowlistEntry {
+        schema_name,
+        table_name,
+    }
+}
+
+fn parse_allowed_tables_from_sql(
+    sql_text: &str,
+    file_stem: &str,
+    allowed_schemas: &[&str],
+) -> Vec<TableAllowlistEntry> {
+    let mut allowed_tables = Vec::new();
+
+    for line in sql_text.lines() {
+        let trimmed_line = line.trim_start();
+        let lowercase_line = trimmed_line.to_ascii_lowercase();
+        if !lowercase_line.starts_with("create table ") {
+            continue;
+        }
+
+        let raw_identifier = &trimmed_line["create table ".len()..];
+        let raw_identifier = raw_identifier
+            .strip_prefix("if not exists ")
+            .unwrap_or(raw_identifier);
+        let table_identifier = raw_identifier
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('(')
+            .trim_matches('`');
+
+        let Some((schema_name, table_name)) =
+            resolve_table_identifier(table_identifier, file_stem, allowed_schemas)
+        else {
+            continue;
+        };
+
+        allowed_tables.push(TableAllowlistEntry {
+            schema_name,
+            table_name,
+        });
+    }
+
+    allowed_tables
+}
+
+fn resolve_table_identifier(
+    table_identifier: &str,
+    file_stem: &str,
+    allowed_schemas: &[&str],
+) -> Option<(String, String)> {
+    if table_identifier.is_empty() {
+        return None;
+    }
+
+    if let Some((schema_name, table_name)) = table_identifier.split_once('.') {
+        let schema_name = normalize_identifier(schema_name)?;
+        let table_name = normalize_identifier(table_name)?;
+
+        if allowed_schemas
+            .iter()
+            .any(|allowed_schema| allowed_schema == &schema_name)
+        {
+            return Some((schema_name, table_name));
+        }
+
+        return None;
+    }
+
+    let table_name = normalize_identifier(table_identifier)?;
+    let file_schema_name = normalize_identifier(file_stem)?;
+
+    if allowed_schemas
+        .iter()
+        .any(|allowed_schema| allowed_schema == &file_schema_name)
+    {
+        return Some((file_schema_name, table_name));
+    }
+
+    None
+}
+
+fn normalize_identifier(identifier: &str) -> Option<String> {
+    let normalized = identifier.trim_matches('`').trim();
+    if normalized.is_empty() || !is_safe_identifier(normalized) {
+        return None;
+    }
+
+    Some(normalized.to_string())
 }
 
 fn from_hex_digit(value: u8) -> Option<u8> {
@@ -297,7 +516,8 @@ pub async fn build_app_state() -> AppState {
     let db = generate_pool().await;
     let default_schema = resolve_default_schema(&db).await;
     let allowed_schemas = read_allowed_schemas(&default_schema);
-    let api_spec = build_api_spec(&db, &allowed_schemas, &default_schema)
+    let allowed_tables = read_allowed_tables(&default_schema, &allowed_schemas);
+    let api_spec = build_api_spec(&db, &allowed_schemas, &allowed_tables, &default_schema)
         .await
         .expect("Failed to build API specification");
 
@@ -311,7 +531,10 @@ pub async fn build_app_state() -> AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_percent_encoded_value, parse_schema_list, resolve_env_file_path_from};
+    use super::{
+        decode_percent_encoded_value, parse_allowed_tables_from_sql, parse_schema_list,
+        parse_table_list, resolve_env_file_path_from,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -379,5 +602,59 @@ mod tests {
         let decoded = decode_percent_encoded_value("plain-password");
 
         assert_eq!(decoded, None);
+    }
+
+    #[test]
+    fn parse_allowed_tables_from_sql_uses_file_stem_for_unqualified_names() {
+        let tables = parse_allowed_tables_from_sql(
+            "create table sample_table\n(\n    id int\n);\n",
+            "plango",
+            &["plango"],
+        );
+
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].schema_name, "plango");
+        assert_eq!(tables[0].table_name, "sample_table");
+    }
+
+    #[test]
+    fn parse_allowed_tables_from_sql_accepts_qualified_names_from_aggregate_sql() {
+        let tables = parse_allowed_tables_from_sql(
+            "create table ifs_reference_data.sample_table\n(\n    id int\n);\ncreate table other_schema.ignored_table\n(\n    id int\n);\n",
+            "system_database",
+            &["ifs_reference_data"],
+        );
+
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].schema_name, "ifs_reference_data");
+        assert_eq!(tables[0].table_name, "sample_table");
+    }
+
+    #[test]
+    fn parse_table_list_accepts_qualified_and_unqualified_entries() {
+        let tables = parse_table_list(
+            "ifs_reference_data.sample_table, users",
+            "plango",
+            &["ifs_reference_data".to_string(), "plango".to_string()],
+        );
+
+        assert_eq!(tables.len(), 2);
+        assert_eq!(tables[0].schema_name, "ifs_reference_data");
+        assert_eq!(tables[0].table_name, "sample_table");
+        assert_eq!(tables[1].schema_name, "plango");
+        assert_eq!(tables[1].table_name, "users");
+    }
+
+    #[test]
+    fn parse_table_list_deduplicates_entries() {
+        let tables = parse_table_list(
+            "plango.users, users, plango.users",
+            "plango",
+            &["plango".to_string()],
+        );
+
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].schema_name, "plango");
+        assert_eq!(tables[0].table_name, "users");
     }
 }

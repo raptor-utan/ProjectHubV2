@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{Number, Value};
-use sqlx::mysql::MySqlRow;
-use sqlx::{FromRow, MySql, MySqlPool, QueryBuilder};
+use sqlx::{MySql, MySqlPool, QueryBuilder};
 
-use crate::database_models::models::TableReadModel;
-use crate::models::{ApiSpecification, QueryOptions, SearchMode, TablePostRequest, UpsertResult};
+use crate::models::{
+    AllowedSchemaSpec, ApiSpecification, QueryOptions, SearchMode, TableColumnSpec,
+    TableEndpointSpec, TablePostRequest, UpsertResult,
+};
 use crate::settings::constants::{TABLE_NAME_QUERY_PARAM, TABLE_SCHEMA_QUERY_PARAM};
 
 #[derive(Debug)]
@@ -49,19 +50,49 @@ fn qualified_table_name(schema_name: &str, table_name: &str) -> String {
     format!("`{schema_name}`.`{table_name}`")
 }
 
-fn allowed_columns<'a>(api_spec: &'a ApiSpecification, table_name: &str) -> Vec<&'a str> {
+pub fn find_table_endpoint_spec<'a>(
+    api_spec: &'a ApiSpecification,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<&'a TableEndpointSpec, TableApiError> {
     api_spec
         .table_endpoints
         .iter()
-        .find(|endpoint| endpoint.table_name == table_name)
-        .map(|endpoint| {
-            endpoint
-                .columns
-                .iter()
-                .map(|column| column.name.as_str())
-                .collect::<Vec<_>>()
+        .find(|endpoint| endpoint.schema_name == schema_name && endpoint.table_name == table_name)
+        .ok_or_else(|| {
+            TableApiError::InvalidRequest(format!(
+                "Unsupported table_name in schema {schema_name}: {table_name}"
+            ))
         })
-        .unwrap_or_default()
+}
+
+pub fn find_allowed_schema_spec<'a>(
+    api_spec: &'a ApiSpecification,
+    schema_name: &str,
+) -> Result<&'a AllowedSchemaSpec, TableApiError> {
+    api_spec
+        .allowed_schema_specs
+        .iter()
+        .find(|schema_spec| schema_spec.schema_name == schema_name)
+        .ok_or_else(|| {
+            TableApiError::InvalidRequest(format!(
+                "schema_name is not registered in the API specification: {schema_name}"
+            ))
+        })
+}
+
+fn allowed_columns<'a>(
+    api_spec: &'a ApiSpecification,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Vec<&'a str>, TableApiError> {
+    let endpoint = find_table_endpoint_spec(api_spec, schema_name, table_name)?;
+
+    Ok(endpoint
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>())
 }
 
 fn ensure_allowed_column(allowed_columns: &[&str], column: &str) -> Result<(), TableApiError> {
@@ -188,6 +219,34 @@ fn append_order_by_and_limit(
     }
 }
 
+fn append_json_object_projection(
+    builder: &mut QueryBuilder<'_, MySql>,
+    columns: &[TableColumnSpec],
+) {
+    builder.push("SELECT CAST(JSON_OBJECT(");
+
+    if columns.is_empty() {
+        builder.push(") AS CHAR)");
+        return;
+    }
+
+    let mut is_first = true;
+    for column in columns {
+        if is_first {
+            is_first = false;
+        } else {
+            builder.push(", ");
+        }
+
+        builder.push_bind(column.name.clone());
+        builder.push(", `");
+        builder.push(column.name.as_str());
+        builder.push("`");
+    }
+
+    builder.push(") AS CHAR)");
+}
+
 fn normalize_selector(params: &HashMap<String, String>) -> BTreeMap<String, Value> {
     let mut selector = BTreeMap::new();
 
@@ -245,12 +304,28 @@ pub fn validate_allowed_schema(
     Ok(())
 }
 
+pub fn validate_discoverable_schema(
+    api_spec: &ApiSpecification,
+    schema_name: &str,
+) -> Result<(), TableApiError> {
+    let schema_spec = find_allowed_schema_spec(api_spec, schema_name)?;
+
+    if !schema_spec.schema_found {
+        return Err(TableApiError::InvalidRequest(format!(
+            "schema_name is allowed but was not found in information_schema: {schema_name}"
+        )));
+    }
+
+    Ok(())
+}
+
 pub fn validate_filter_columns(
     api_spec: &ApiSpecification,
+    schema_name: &str,
     table_name: &str,
     params: &HashMap<String, String>,
 ) -> Result<(), TableApiError> {
-    let allowed_columns = allowed_columns(api_spec, table_name);
+    let allowed_columns = allowed_columns(api_spec, schema_name, table_name)?;
 
     for column in params.keys() {
         if column == TABLE_NAME_QUERY_PARAM || column == TABLE_SCHEMA_QUERY_PARAM {
@@ -265,6 +340,7 @@ pub fn validate_filter_columns(
 
 pub fn validate_post_request(
     api_spec: &ApiSpecification,
+    schema_name: &str,
     table_name: &str,
     request: &TablePostRequest,
 ) -> Result<(), TableApiError> {
@@ -277,7 +353,7 @@ pub fn validate_post_request(
         }
     }
 
-    let allowed_columns = allowed_columns(api_spec, table_name);
+    let allowed_columns = allowed_columns(api_spec, schema_name, table_name)?;
     for (column, value) in &request.selector {
         ensure_allowed_column(&allowed_columns, column)?;
         ensure_supported_value(value, column)?;
@@ -303,27 +379,28 @@ pub fn validate_post_request(
     Ok(())
 }
 
-pub async fn fetch_table_rows<R>(
+pub async fn fetch_table_rows(
     pool: &MySqlPool,
     schema_name: &str,
+    table_name: &str,
+    columns: &[TableColumnSpec],
     params: &HashMap<String, String>,
-) -> Result<Vec<R>, TableApiError>
-where
-    R: TableReadModel + for<'row> FromRow<'row, MySqlRow> + Send + Unpin + 'static,
-{
-    if let Some(table_name) = params.get(TABLE_NAME_QUERY_PARAM) {
-        if table_name != R::TABLE_NAME {
+) -> Result<Vec<Value>, TableApiError> {
+    if let Some(requested_table_name) = params.get(TABLE_NAME_QUERY_PARAM) {
+        if requested_table_name != table_name {
             return Err(TableApiError::TableNameMismatch {
-                expected: R::TABLE_NAME.to_string(),
-                actual: table_name.clone(),
+                expected: table_name.to_string(),
+                actual: requested_table_name.clone(),
             });
         }
     }
 
     let selector = normalize_selector(params);
-    fetch_table_rows_from_selector::<R>(
+    fetch_table_rows_from_selector(
         pool,
         schema_name,
+        table_name,
+        columns,
         &selector,
         SearchMode::And,
         &QueryOptions::default(),
@@ -331,36 +408,46 @@ where
     .await
 }
 
-pub async fn fetch_table_rows_from_selector<R>(
+pub async fn fetch_table_rows_from_selector(
     pool: &MySqlPool,
     schema_name: &str,
+    table_name: &str,
+    columns: &[TableColumnSpec],
     selector: &BTreeMap<String, Value>,
     search_mode: SearchMode,
     options: &QueryOptions,
-) -> Result<Vec<R>, TableApiError>
-where
-    R: TableReadModel + for<'row> FromRow<'row, MySqlRow> + Send + Unpin + 'static,
-{
-    let table_name = qualified_table_name(schema_name, R::TABLE_NAME);
-    let mut query_builder = QueryBuilder::<MySql>::new(format!("SELECT * FROM {table_name}"));
+) -> Result<Vec<Value>, TableApiError> {
+    let qualified_name = qualified_table_name(schema_name, table_name);
+    let mut query_builder = QueryBuilder::<MySql>::new(String::new());
+    append_json_object_projection(&mut query_builder, columns);
+    query_builder.push(" AS row_json FROM ");
+    query_builder.push(qualified_name);
     append_selector_conditions(&mut query_builder, selector, search_mode)?;
     append_order_by_and_limit(&mut query_builder, options, None);
 
-    query_builder
-        .build_query_as::<R>()
+    let rows: Vec<(String,)> = query_builder
+        .build_query_as()
         .fetch_all(pool)
         .await
-        .map_err(TableApiError::QueryFailed)
+        .map_err(TableApiError::QueryFailed)?;
+
+    rows.into_iter()
+        .map(|(json_text,)| {
+            serde_json::from_str::<Value>(&json_text).map_err(|error| {
+                TableApiError::InvalidRequest(format!(
+                    "Failed to decode database row JSON for {schema_name}.{table_name}: {error}"
+                ))
+            })
+        })
+        .collect()
 }
 
-pub async fn upsert_table_row<R>(
+pub async fn upsert_table_row(
     pool: &MySqlPool,
     schema_name: &str,
+    table_name: &str,
     request: &TablePostRequest,
-) -> Result<UpsertResult, TableApiError>
-where
-    R: TableReadModel + Send + Unpin + 'static,
-{
+) -> Result<UpsertResult, TableApiError> {
     let insert_values = build_insert_values(request);
     if insert_values.is_empty() {
         return Err(TableApiError::InvalidRequest(
@@ -369,7 +456,7 @@ where
     }
 
     if request.selector.is_empty() {
-        let created_id = insert_table_row(pool, schema_name, R::TABLE_NAME, &insert_values).await?;
+        let created_id = insert_table_row(pool, schema_name, table_name, &insert_values).await?;
         return Ok(UpsertResult {
             result: "insert",
             created_id,
@@ -379,7 +466,7 @@ where
     if row_exists(
         pool,
         schema_name,
-        R::TABLE_NAME,
+        table_name,
         &request.selector,
         request.search_mode,
         &request.options,
@@ -391,7 +478,7 @@ where
                 update_first_matching_row(
                     pool,
                     schema_name,
-                    R::TABLE_NAME,
+                    table_name,
                     &request.selector,
                     request.search_mode,
                     &request.options,
@@ -407,7 +494,7 @@ where
         });
     }
 
-    let created_id = insert_table_row(pool, schema_name, R::TABLE_NAME, &insert_values).await?;
+    let created_id = insert_table_row(pool, schema_name, table_name, &insert_values).await?;
     Ok(UpsertResult {
         result: "insert",
         created_id,
@@ -531,12 +618,13 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        TableApiError, normalize_selector, validate_allowed_schema, validate_post_request,
+        TableApiError, normalize_selector, validate_allowed_schema, validate_discoverable_schema,
+        validate_post_request,
     };
     use crate::models::{
-        ApiSpecification, QueryOptions, RequestFieldSpec, ResponseSpec, SearchMode,
-        SupportEndpointSpec, TableColumnSpec, TableEndpointSpec, TableGetApiSpec, TablePostApiSpec,
-        TablePostRequest,
+        AllowedSchemaSpec, ApiSpecification, QueryOptions, RequestFieldSpec, ResponseSpec,
+        SearchMode, SupportEndpointSpec, TableColumnSpec, TableEndpointSpec, TableGetApiSpec,
+        TablePostApiSpec, TablePostRequest,
     };
 
     fn build_api_spec() -> ApiSpecification {
@@ -546,6 +634,12 @@ mod tests {
             generated_at: "2026-05-18T00:00:00+09:00".to_string(),
             overview: Vec::new(),
             allowed_schemas: vec!["ifs_reference_data".to_string()],
+            allowed_schema_specs: vec![AllowedSchemaSpec {
+                schema_name: "ifs_reference_data".to_string(),
+                is_default: true,
+                schema_found: true,
+                table_count: 1,
+            }],
             support_endpoints: vec![SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/health".to_string(),
@@ -577,6 +671,7 @@ mod tests {
                 upsert_responses: Vec::new(),
             },
             table_endpoints: vec![TableEndpointSpec {
+                schema_name: "ifs_reference_data".to_string(),
                 table_name: "sample_table".to_string(),
                 model_name: "SampleTable".to_string(),
                 path: "/update".to_string(),
@@ -648,8 +743,9 @@ mod tests {
             values: None,
         };
 
-        let error = validate_post_request(&api_spec, "sample_table", &request)
-            .expect_err("unknown column should fail");
+        let error =
+            validate_post_request(&api_spec, "ifs_reference_data", "sample_table", &request)
+                .expect_err("unknown column should fail");
 
         assert!(matches!(error, TableApiError::InvalidColumn(column) if column == "unknown"));
     }
@@ -669,7 +765,51 @@ mod tests {
             values: Some(BTreeMap::from([("name".to_string(), json!("updated"))])),
         };
 
-        validate_post_request(&api_spec, "sample_table", &request)
+        validate_post_request(&api_spec, "ifs_reference_data", "sample_table", &request)
             .expect("scalar values should pass");
+    }
+
+    #[test]
+    fn validate_post_request_rejects_table_in_wrong_schema() {
+        let api_spec = build_api_spec();
+        let request = TablePostRequest {
+            schema_name: Some("plango".to_string()),
+            table_name: Some("sample_table".to_string()),
+            selector: BTreeMap::from([("id".to_string(), json!(10))]),
+            search_mode: SearchMode::And,
+            options: QueryOptions::default(),
+            values: None,
+        };
+
+        let error = validate_post_request(&api_spec, "plango", "sample_table", &request)
+            .expect_err("table in unsupported schema should fail");
+
+        assert!(matches!(error, TableApiError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn validate_discoverable_schema_accepts_schema_in_spec() {
+        let api_spec = build_api_spec();
+
+        validate_discoverable_schema(&api_spec, "ifs_reference_data")
+            .expect("discoverable schema should pass");
+    }
+
+    #[test]
+    fn validate_discoverable_schema_rejects_missing_schema() {
+        let api_spec = ApiSpecification {
+            allowed_schema_specs: vec![AllowedSchemaSpec {
+                schema_name: "missing_schema".to_string(),
+                is_default: false,
+                schema_found: false,
+                table_count: 0,
+            }],
+            ..build_api_spec()
+        };
+
+        let error = validate_discoverable_schema(&api_spec, "missing_schema")
+            .expect_err("undiscoverable schema should fail");
+
+        assert!(matches!(error, TableApiError::InvalidRequest(_)));
     }
 }

@@ -1,12 +1,16 @@
 # todo.md
 
-- [x] GET `/system_api_server/si/v1/execute/sql/read` を `table_name` クエリで参照できるようにする。
-- [x] JSON 条件検索を `POST /system_api_server/si/v1/execute/sql/read` に集約する。
-- [x] upsert を `POST /system_api_server/si/v1/execute/sql/update` に集約する。
-- [x] `table_name` を JSON ボディから受けてモデルへディスパッチする。
-- [x] DB 接続情報を `.env` から取得する。
-- [x] 実行ディレクトリ直下に `.env` がない場合は親ディレクトリの `.env` を参照する。
-- [x] `schema_name` をクエリパラメータと JSON の両方で受ける。
-- [x] デフォルトスキーマ設定を追加し、`schema_name` 未指定時に使う。
-- [x] スキーマ allowlist を追加し、許可されたスキーマだけアクセス可能にする。
-- [x] `cargo check` と `cargo test` で変更範囲を確認する。
+- [x] API 仕様生成時の allowlist カラム探索 SQL が不正になる不具合を修正する。
+- [x] `GET /system_api_server/si/v1/execute/sql/read` が `table_name` クエリで対象テーブルを受け取れるようにする。
+- [x] `POST /system_api_server/si/v1/execute/sql/read` で JSON 条件検索を行えるようにする。
+- [x] `POST /system_api_server/si/v1/execute/sql/update` で upsert を行えるようにする。
+- [x] `schema_name` をクエリパラメータと JSON の両方で受け取れるようにする。
+- [x] デフォルトスキーマ設定と allowlist によるスキーマ制御を追加する。
+- [x] `.env` と親ディレクトリ `.env` の両方を探索できるようにする。
+- [x] 許可スキーマのテーブル定義を `information_schema` から動的取得するようにする。
+- [x] allowlist に追加した任意スキーマを API から動的に read / update できるようにする。
+- [x] 許可スキーマ自体の一覧と検出状態を `/api/spec` と `/manual` に表示する。
+- [x] テーブル allowlist を `sql/*.sql` の DDL から復元し、許可テーブルだけを API 公開対象にする。
+- [x] `.env` の `PROJECT_HUB_ALLOWED_TABLES` でテーブル allowlist を設定できるようにする。
+- [x] `/manual` と `/api/spec` をスキーマ付きテーブル表示へ更新する。
+- [x] `cargo check` と `cargo test` で動作確認する。

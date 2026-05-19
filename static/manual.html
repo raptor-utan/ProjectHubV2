@@ -38,6 +38,16 @@
         </section>
 
         <section class="two-column">
+          <section class="panel" aria-labelledby="allowedSchemasTitle">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Schemas</p>
+                <h2 id="allowedSchemasTitle">許可スキーマ</h2>
+              </div>
+            </div>
+            <div class="endpoint-list" id="allowedSchemas"></div>
+          </section>
+
           <section class="panel" aria-labelledby="supportEndpointsTitle">
             <div class="section-head">
               <div>
@@ -104,7 +114,7 @@
             </div>
             <label class="search-box" for="tableSearch">
               <span>検索</span>
-              <input id="tableSearch" type="search" placeholder="テーブル名 / モデル名">
+              <input id="tableSearch" type="search" placeholder="スキーマ名 / テーブル名 / モデル名">
             </label>
           </div>
           <div class="table-cards" id="tableCards"></div>

@@ -2,6 +2,7 @@ const elements = {
   summaryGrid: document.getElementById("summaryGrid"),
   generatedAt: document.getElementById("generatedAt"),
   overviewList: document.getElementById("overviewList"),
+  allowedSchemas: document.getElementById("allowedSchemas"),
   supportEndpoints: document.getElementById("supportEndpoints"),
   getRoutePattern: document.getElementById("getRoutePattern"),
   getFilteringBehavior: document.getElementById("getFilteringBehavior"),
@@ -33,6 +34,7 @@ function createElement(tagName, className, textContent) {
 
 function renderSummary(spec) {
   const cards = [
+    { label: "許可スキーマ", value: spec.allowed_schema_specs.length },
     { label: "補助エンドポイント", value: spec.support_endpoints.length },
     { label: "テーブル API", value: spec.table_endpoints.length },
     {
@@ -53,6 +55,29 @@ function renderSummary(spec) {
       createElement("strong", "metric-value", String(card.value)),
     );
     elements.summaryGrid.appendChild(item);
+  });
+}
+
+function renderAllowedSchemas(items) {
+  elements.allowedSchemas.replaceChildren();
+
+  items.forEach((schemaSpec) => {
+    const card = createElement("article", "endpoint-card");
+    const line = createElement("div", "endpoint-line");
+    const badgeClass = schemaSpec.schema_found ? "schema-badge ok" : "schema-badge warn";
+    const badgeText = schemaSpec.is_default ? "default" : "allowed";
+
+    line.append(
+      createElement("strong", "", schemaSpec.schema_name),
+      createElement("span", badgeClass, badgeText),
+    );
+
+    const note = schemaSpec.schema_found
+      ? `discoverable / allowlisted tables: ${schemaSpec.table_count}`
+      : "information_schema で未検出";
+
+    card.append(line, createElement("p", "card-note", note));
+    elements.allowedSchemas.appendChild(card);
   });
 }
 
@@ -177,12 +202,12 @@ function renderTableEndpoints(items) {
     const head = createElement("div", "table-card-head");
     const titleGroup = createElement("div");
     titleGroup.append(
-      createElement("h3", "", endpoint.table_name),
+      createElement("h3", "", `${endpoint.schema_name}.${endpoint.table_name}`),
       createElement("p", "model-name", endpoint.model_name),
     );
 
     const badgeClass = endpoint.schema_found ? "schema-badge ok" : "schema-badge warn";
-    const badgeText = endpoint.schema_found ? "schema ok" : "schema missing";
+    const badgeText = endpoint.schema_found ? endpoint.schema_name : "schema missing";
     head.append(titleGroup, createElement("span", badgeClass, badgeText));
 
     const sampleGrid = createElement("div", "sample-grid");
@@ -224,6 +249,7 @@ function filterTableEndpoints() {
 
   const filtered = allTableEndpoints.filter((endpoint) => {
     return (
+      endpoint.schema_name.toLowerCase().includes(keyword) ||
       endpoint.table_name.toLowerCase().includes(keyword) ||
       endpoint.model_name.toLowerCase().includes(keyword)
     );
@@ -252,6 +278,7 @@ async function loadManual() {
     renderSummary(spec);
     elements.generatedAt.textContent = `生成日時: ${spec.generated_at}`;
     renderStringList(elements.overviewList, spec.overview);
+    renderAllowedSchemas(spec.allowed_schema_specs);
     renderSupportEndpoints(spec.support_endpoints);
 
     elements.getRoutePattern.textContent = `${spec.table_get_api.method} ${spec.table_get_api.route_pattern}`;

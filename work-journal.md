@@ -14,3 +14,7 @@
 - 2026-05-18 Switched database connection initialization to `.env`-based settings with a parent-directory fallback.
 - 2026-05-18 Added schema_name support for GET/POST, configurable default schema, and schema allowlist enforcement.
 - 2026-05-18 Added fallback handling for URL-encoded `DB_PASSWORD` values in split DB env settings.
+- 2026-05-19 Replaced static schema/table dispatch with information_schema-driven dynamic allowlist handling so any configured schema can be read and updated through the existing SQL API.
+- 2026-05-19 Restored table-level allowlisting by deriving allowed tables from `sql/*.sql` while keeping schema handling dynamic.
+- 2026-05-19 Added `.env`-driven `PROJECT_HUB_ALLOWED_TABLES` support so both schema and table allowlists can be configured from environment settings.
+- 2026-05-19 Fixed malformed API specification column-discovery SQL so `.env` allowlisted tables no longer panic during startup.
