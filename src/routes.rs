@@ -11,7 +11,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(manual_styles)
         .service(manual_script)
         .service(api_spec)
-        .service(health);
+        .service(health)
+        .service(guide)
+        .service(guide_styles)
+        .service(guide_script);
 }
 
 #[get("/")]
