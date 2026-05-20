@@ -7,7 +7,7 @@ mod settings;
 mod utils;
 
 use actix_cors::Cors;
-use actix_web::{App, HttpServer, web, http};
+use actix_web::{App, HttpServer, web};
 use app_state::build_app_state;
 use std::env;
 
@@ -48,6 +48,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .app_data(state.clone())
             .configure(routes::configure_routes)
+            .configure(services::table_metadata_service::configure)
             .configure(services::table_read_service::configure)
     })
     .bind(bind_address)?

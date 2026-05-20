@@ -35,3 +35,7 @@
 - カラム検証は `schema_name + table_name` 単位で行う。
 - 読み取り結果は動的な JSON オブジェクト配列として返す。
 - upsert の SQL は ``schema.table`` を明示した完全修飾名で実行する。
+
+## 2026-05-20 metadata endpoint
+- `GET /system_api_server/si/v1/execute/sql/table-metadata` returns allowlisted table names, table comments, and column comments as JSON.
+- Optional query parameter: `schema_name`. When omitted, the endpoint returns all discoverable allowlisted tables across allowed schemas.

@@ -9,7 +9,8 @@ use crate::models::{
     TableColumnSpec, TableEndpointSpec, TableGetApiSpec, TablePostApiSpec,
 };
 use crate::settings::constants::{
-    TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM, TABLE_UPDATE_ROUTE,
+    TABLE_METADATA_ROUTE, TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM,
+    TABLE_UPDATE_ROUTE,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -35,7 +36,7 @@ struct InformationSchemaNameRow {
     schema_name: String,
 }
 
-/// information_schema を基準に API 仕様を組み立てる。
+/// information_schema をもとに API 仕様を組み立てます。
 pub async fn build_api_spec(
     pool: &MySqlPool,
     allowed_schemas: &[String],
@@ -48,19 +49,19 @@ pub async fn build_api_spec(
 
     Ok(ApiSpecification {
         title: "ProjectHubV2 API仕様".to_string(),
-        version: "1.6.0".to_string(),
+        version: "1.7.0".to_string(),
         generated_at: Local::now().to_rfc3339(),
         overview: vec![
-            "GET はクエリ、POST は JSON で検索条件を受け取り、POST /update は upsert を実行します。"
+            "GET /read はクエリ文字列検索、POST /read は JSON 条件検索、POST /update は upsert を実行します。"
                 .to_string(),
             format!(
-                "`{TABLE_SCHEMA_QUERY_PARAM}` は GET と POST の両方で指定できます。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+                "`{TABLE_SCHEMA_QUERY_PARAM}` は GET/POST の両方で利用できます。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
             ),
             format!(
-                "アクセス可能なスキーマは次の allowlist のみです: {}",
+                "利用可能スキーマは allowlist で制御されます: {}",
                 allowed_schemas.join(", ")
             ),
-            "許可テーブルは `PROJECT_HUB_ALLOWED_TABLES` を優先し、未設定時は `sql/*.sql` の DDL から補完します。実カラム定義は information_schema から動的に生成します。"
+            "利用可能テーブルは `PROJECT_HUB_ALLOWED_TABLES`、未設定時は `sql/*.sql` の DDL から決定します。"
                 .to_string(),
         ],
         allowed_schemas: allowed_schemas.to_vec(),
@@ -79,12 +80,18 @@ pub async fn build_api_spec(
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/api/spec".to_string(),
-                summary: "マニュアル用の JSON API 仕様を返します。".to_string(),
+                summary: "マニュアル表示用の JSON API 仕様を返します。".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/health".to_string(),
                 summary: "ヘルスチェック結果を返します。".to_string(),
+            },
+            SupportEndpointSpec {
+                method: "GET".to_string(),
+                path: TABLE_METADATA_ROUTE.to_string(),
+                summary: "allowlist 対象テーブルのテーブルコメントと列コメントを JSON で返します。"
+                    .to_string(),
             },
         ],
         table_get_api: TableGetApiSpec {
@@ -95,9 +102,9 @@ pub async fn build_api_spec(
                 format!(
                     "`{TABLE_SCHEMA_QUERY_PARAM}` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
                 ),
-                "追加のクエリパラメータは対象テーブルのカラム名として扱い、AND 条件で検索します。"
+                "追加のクエリパラメータは対象テーブルの列名と解釈され、AND 条件で検索します。"
                     .to_string(),
-                "文字列値に `%` を含めると LIKE 条件として扱います。".to_string(),
+                "`%` を含む文字列は LIKE 条件として扱います。".to_string(),
             ],
             query_parameters: vec![
                 RequestFieldSpec {
@@ -112,14 +119,15 @@ pub async fn build_api_spec(
                     required: true,
                     data_type: "string".to_string(),
                     description:
-                        "対象テーブル名。指定したスキーマで許可されたテーブルであり、information_schema に存在する必要があります。"
+                        "対象テーブル名。allowlist に含まれ、information_schema で解決できる必要があります。"
                             .to_string(),
                 },
                 RequestFieldSpec {
                     name: "<column_name>".to_string(),
                     required: false,
                     data_type: "string".to_string(),
-                    description: "一致または LIKE で検索するカラム値。".to_string(),
+                    description: "列名ごとの検索条件。`%` を含むと LIKE 検索になります。"
+                        .to_string(),
                 },
             ],
             responses: vec![
@@ -132,13 +140,13 @@ pub async fn build_api_spec(
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須パラメータ不足、許可外スキーマ、未登録テーブル、不正カラムのときに返します。"
+                        "必須パラメータ不足、allowlist 違反、不正な列名などの入力エラーです。"
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗したときに返します。".to_string(),
+                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
                 },
             ],
         },
@@ -147,16 +155,16 @@ pub async fn build_api_spec(
             read_route_pattern: TABLE_READ_ROUTE.to_string(),
             upsert_route_pattern: TABLE_UPDATE_ROUTE.to_string(),
             behavior: vec![
-                "POST /read は JSON 条件検索を行い、{\"result\":[...]} を返します。"
+                "POST /read は JSON 条件検索を行い、`{\"result\":[...]}` を返します。"
                     .to_string(),
                 "POST /update は JSON upsert を行い、update か insert の結果を返します。"
                     .to_string(),
                 format!(
                     "`schema_name` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
                 ),
-                "selector では and_ / or_ を選べ、options.order_by と options.limit を指定できます。"
+                "`selector` は `and_` / `or_` を選べます。`options.order_by` と `options.limit` に対応します。"
                     .to_string(),
-                "POST /update の values は必須で、更新対象が見つからない場合は selector と values を合わせて INSERT します。"
+                "POST /update の `values` は必須です。新規 insert 時は `selector` と `values` を合わせて使用します。"
                     .to_string(),
             ],
             request_fields: vec![
@@ -172,21 +180,22 @@ pub async fn build_api_spec(
                     required: true,
                     data_type: "string".to_string(),
                     description:
-                        "対象テーブル名。指定したスキーマで許可されたテーブルであり、information_schema に存在する必要があります。"
+                        "対象テーブル名。allowlist に含まれ、information_schema で解決できる必要があります。"
                             .to_string(),
                 },
                 RequestFieldSpec {
                     name: "selector".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "検索条件。値には string / number / bool / null を使用できます。"
-                        .to_string(),
+                    description:
+                        "検索条件。値には string / number / bool / null を使用できます。"
+                            .to_string(),
                 },
                 RequestFieldSpec {
                     name: "search_mode".to_string(),
                     required: false,
                     data_type: "`and_` | `or_`".to_string(),
-                    description: "selector の結合方法。省略時は `or_` です。".to_string(),
+                    description: "selector の結合条件です。省略時は `or_` です。".to_string(),
                 },
                 RequestFieldSpec {
                     name: "options".to_string(),
@@ -198,7 +207,7 @@ pub async fn build_api_spec(
                     name: "values".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "POST /update 用の更新値。POST /read では指定できません。"
+                    description: "POST /update 用の更新値です。POST /read では指定できません。"
                         .to_string(),
                 },
             ],
@@ -212,13 +221,13 @@ pub async fn build_api_spec(
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須項目不足、許可外スキーマ、未登録テーブル、不正カラム、不正 JSON のときに返します。"
+                        "必須 JSON 欠落、allowlist 違反、不正な列名、不正 JSON などの入力エラーです。"
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗したときに返します。".to_string(),
+                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
                 },
             ],
             upsert_responses: vec![
@@ -226,20 +235,21 @@ pub async fn build_api_spec(
                     status: 200,
                     body: "{\"result\":\"update|insert\",\"created_id\":number|null}"
                         .to_string(),
-                    description: "insert 時は auto increment の ID を created_id に返します。"
-                        .to_string(),
+                    description:
+                        "insert 時は auto increment の ID を `created_id` に返します。"
+                            .to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須項目不足、許可外スキーマ、未登録テーブル、不正カラム、不正 JSON のときに返します。"
+                        "必須 JSON 欠落、allowlist 違反、不正な列名、不正 JSON などの入力エラーです。"
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗したときに返します。".to_string(),
+                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
                 },
             ],
         },
@@ -330,32 +340,32 @@ async fn fetch_table_endpoints(
                 .unwrap_or_default();
 
             TableEndpointSpec {
-            schema_name: entry.schema_name.clone(),
-            table_name: entry.table_name.clone(),
-            model_name: "DynamicTableRow".to_string(),
-            path: TABLE_READ_ROUTE.to_string(),
-            summary: format!(
-                "{}.{} can be read by GET or POST /read and updated by POST /update within the configured allowlists",
-                entry.schema_name, entry.table_name
-            ),
-            schema_found: !columns.is_empty(),
-            get_sample_request: build_get_sample_request(
-                &entry.schema_name,
-                &entry.table_name,
-                &columns,
-            ),
-            post_read_sample_request: build_post_read_sample_request(
-                &entry.schema_name,
-                &entry.table_name,
-                &columns,
-            ),
-            post_upsert_sample_request: build_post_upsert_sample_request(
-                &entry.schema_name,
-                &entry.table_name,
-                &columns,
-            ),
-            columns,
-        }
+                schema_name: entry.schema_name.clone(),
+                table_name: entry.table_name.clone(),
+                model_name: "DynamicTableRow".to_string(),
+                path: TABLE_READ_ROUTE.to_string(),
+                summary: format!(
+                    "{}.{} can be read by GET or POST /read and updated by POST /update within the configured allowlists",
+                    entry.schema_name, entry.table_name
+                ),
+                schema_found: !columns.is_empty(),
+                get_sample_request: build_get_sample_request(
+                    &entry.schema_name,
+                    &entry.table_name,
+                    &columns,
+                ),
+                post_read_sample_request: build_post_read_sample_request(
+                    &entry.schema_name,
+                    &entry.table_name,
+                    &columns,
+                ),
+                post_upsert_sample_request: build_post_upsert_sample_request(
+                    &entry.schema_name,
+                    &entry.table_name,
+                    &columns,
+                ),
+                columns,
+            }
         })
         .collect())
 }
@@ -384,7 +394,6 @@ async fn fetch_columns_by_table(
     );
 
     append_allowed_table_conditions(&mut query_builder, allowed_tables);
-
     query_builder.push(" ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION");
 
     let rows: Vec<InformationSchemaColumnRow> = query_builder

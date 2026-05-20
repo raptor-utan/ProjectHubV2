@@ -31,7 +31,6 @@ async fn manual() -> impl Responder {
         .body(MANUAL_HTML)
 }
 
-
 #[get("/manual/styles.css")]
 async fn manual_styles() -> impl Responder {
     HttpResponse::Ok()
@@ -55,7 +54,6 @@ async fn api_spec(data: web::Data<AppState>) -> impl Responder {
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(HealthStatus { status: "ok" })
 }
-
 
 #[get("/guide")]
 async fn guide() -> impl Responder {

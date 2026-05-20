@@ -15,6 +15,25 @@ pub struct HealthStatus {
     pub status: &'static str,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct TableMetadataListResponse {
+    pub tables: Vec<TableMetadata>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TableMetadata {
+    pub schema_name: String,
+    pub table_name: String,
+    pub table_comment: String,
+    pub columns: Vec<TableColumnComment>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TableColumnComment {
+    pub column_name: String,
+    pub column_comment: String,
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum SearchMode {
     #[serde(rename = "and_")]

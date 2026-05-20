@@ -14,3 +14,4 @@
 - [x] `.env` の `PROJECT_HUB_ALLOWED_TABLES` でテーブル allowlist を設定できるようにする。
 - [x] `/manual` と `/api/spec` をスキーマ付きテーブル表示へ更新する。
 - [x] `cargo check` と `cargo test` で動作確認する。
+- [x] `GET /system_api_server/si/v1/execute/sql/table-metadata` で allowlist 対象テーブルのテーブルコメントと列コメントを JSON 返却できるようにする。
