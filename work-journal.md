@@ -19,3 +19,4 @@
 - 2026-05-19 Added `.env`-driven `PROJECT_HUB_ALLOWED_TABLES` support so both schema and table allowlists can be configured from environment settings.
 - 2026-05-19 Fixed malformed API specification column-discovery SQL so `.env` allowlisted tables no longer panic during startup.
 - 2026-05-20 Added `GET /system_api_server/si/v1/execute/sql/table-metadata` to return allowlisted table names plus table and column comments from `information_schema`.
+- 2026-05-20 Fixed `/system_api_server/si/v1/execute/sql/table-metadata` to cast `information_schema` comments to CHAR before decoding with sqlx.

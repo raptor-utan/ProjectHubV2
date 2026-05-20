@@ -100,11 +100,11 @@ async fn fetch_table_metadata_rows(
 ) -> Result<Vec<InformationSchemaTableMetadataRow>, sqlx::Error> {
     let mut query_builder = QueryBuilder::<MySql>::new(
         "SELECT \
-             tables.TABLE_SCHEMA AS table_schema, \
-             tables.TABLE_NAME AS table_name, \
-             tables.TABLE_COMMENT AS table_comment, \
-             columns.COLUMN_NAME AS column_name, \
-             columns.COLUMN_COMMENT AS column_comment \
+             CAST(tables.TABLE_SCHEMA AS CHAR(255)) AS table_schema, \
+             CAST(tables.TABLE_NAME AS CHAR(255)) AS table_name, \
+             CAST(tables.TABLE_COMMENT AS CHAR) AS table_comment, \
+             CAST(columns.COLUMN_NAME AS CHAR(255)) AS column_name, \
+             CAST(columns.COLUMN_COMMENT AS CHAR) AS column_comment \
          FROM information_schema.tables AS tables \
          INNER JOIN information_schema.columns AS columns \
              ON columns.TABLE_SCHEMA = tables.TABLE_SCHEMA \
