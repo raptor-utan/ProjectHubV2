@@ -55,7 +55,7 @@ pub fn find_table_endpoint_spec<'a>(
     schema_name: &str,
     table_name: &str,
 ) -> Result<&'a TableEndpointSpec, TableApiError> {
-    api_spec
+    let endpoint = api_spec
         .table_endpoints
         .iter()
         .find(|endpoint| endpoint.schema_name == schema_name && endpoint.table_name == table_name)
@@ -63,7 +63,15 @@ pub fn find_table_endpoint_spec<'a>(
             TableApiError::InvalidRequest(format!(
                 "Unsupported table_name in schema {schema_name}: {table_name}"
             ))
-        })
+        })?;
+
+    if !endpoint.schema_found || endpoint.columns.is_empty() {
+        return Err(TableApiError::InvalidRequest(format!(
+            "table_name is allowlisted but was not found in information_schema: {schema_name}.{table_name}"
+        )));
+    }
+
+    Ok(endpoint)
 }
 
 pub fn find_allowed_schema_spec<'a>(
@@ -618,8 +626,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        TableApiError, normalize_selector, validate_allowed_schema, validate_discoverable_schema,
-        validate_post_request,
+        TableApiError, find_table_endpoint_spec, normalize_selector, validate_allowed_schema,
+        validate_discoverable_schema, validate_post_request,
     };
     use crate::models::{
         AllowedSchemaSpec, ApiSpecification, QueryOptions, RequestFieldSpec, ResponseSpec,
@@ -785,6 +793,21 @@ mod tests {
             .expect_err("table in unsupported schema should fail");
 
         assert!(matches!(error, TableApiError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn find_table_endpoint_spec_rejects_undiscoverable_table() {
+        let mut api_spec = build_api_spec();
+        let mut undiscoverable_endpoint = api_spec.table_endpoints[0].clone();
+        undiscoverable_endpoint.table_name = "missing_table".to_string();
+        undiscoverable_endpoint.schema_found = false;
+        undiscoverable_endpoint.columns = Vec::new();
+        api_spec.table_endpoints.push(undiscoverable_endpoint);
+
+        let error = find_table_endpoint_spec(&api_spec, "ifs_reference_data", "missing_table")
+            .expect_err("undiscoverable table should be rejected");
+
+        assert!(matches!(error, TableApiError::InvalidRequest(message) if message.contains("allowlisted but was not found in information_schema")));
     }
 
     #[test]

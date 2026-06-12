@@ -338,17 +338,26 @@ async fn fetch_table_endpoints(
                 .get(&(entry.schema_name.clone(), entry.table_name.clone()))
                 .cloned()
                 .unwrap_or_default();
+            let schema_found = !columns.is_empty();
+            let summary = if schema_found {
+                format!(
+                    "{}.{} can be read by GET or POST /read and updated by POST /update within the configured allowlists",
+                    entry.schema_name, entry.table_name
+                )
+            } else {
+                format!(
+                    "{}.{} is allowlisted but was not found in information_schema, so this endpoint is unavailable",
+                    entry.schema_name, entry.table_name
+                )
+            };
 
             TableEndpointSpec {
                 schema_name: entry.schema_name.clone(),
                 table_name: entry.table_name.clone(),
                 model_name: "DynamicTableRow".to_string(),
                 path: TABLE_READ_ROUTE.to_string(),
-                summary: format!(
-                    "{}.{} can be read by GET or POST /read and updated by POST /update within the configured allowlists",
-                    entry.schema_name, entry.table_name
-                ),
-                schema_found: !columns.is_empty(),
+                summary,
+                schema_found,
                 get_sample_request: build_get_sample_request(
                     &entry.schema_name,
                     &entry.table_name,

@@ -20,3 +20,6 @@
 - 2026-05-19 Fixed malformed API specification column-discovery SQL so `.env` allowlisted tables no longer panic during startup.
 - 2026-05-20 Added `GET /system_api_server/si/v1/execute/sql/table-metadata` to return allowlisted table names plus table and column comments from `information_schema`.
 - 2026-05-20 Fixed `/system_api_server/si/v1/execute/sql/table-metadata` to cast `information_schema` comments to CHAR before decoding with sqlx.
+- 2026-06-12 Updated `static/manual.html` to reflect `sql/plango.sql` schema summary (`CREATE TABLE` count and prefix-based table groups).
+- 2026-06-12 No test run (static HTML/documentation update only).
+- 2026-06-12 16:19 Added a guard for allowlisted-but-undiscoverable tables so /read and /update return 400 instead of a DB-level 500, and added regression tests.

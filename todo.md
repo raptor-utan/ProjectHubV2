@@ -15,3 +15,5 @@
 - [x] `/manual` と `/api/spec` をスキーマ付きテーブル表示へ更新する。
 - [x] `cargo check` と `cargo test` で動作確認する。
 - [x] `GET /system_api_server/si/v1/execute/sql/table-metadata` で allowlist 対象テーブルのテーブルコメントと列コメントを JSON 返却できるようにする。
+- [x] `sql/plango.sql` の最新 DDL をもとに `static/manual.html` のスキーマ説明を更新する。
+- [x] information_schema �Ŗ������̃e�[�u���ɑ΂��� /read / /update �� 500 �ł͂Ȃ� 400 �ŕԂ��悤�ɏC������B

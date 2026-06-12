@@ -15,6 +15,7 @@
           <p class="lead">
             `GET /read` は `table_name` クエリパラメータで読み取り対象を指定し、
             `POST /read` は JSON 検索、`POST /update` は upsert を行います。どちらも対象テーブルは JSON の `table_name` で指定します。
+            API 公開対象テーブルは `sql/plango.sql` の DDL（`CREATE TABLE`）に基づく allowlist で管理されます。
           </p>
         </div>
         <div class="hero-actions">
@@ -35,6 +36,21 @@
             <p class="stamp" id="generatedAt">仕様を読み込み中</p>
           </div>
           <ul class="rule-list" id="overviewList"></ul>
+        </section>
+
+        <section class="panel" aria-labelledby="plangoSchemaTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Schema Source</p>
+              <h2 id="plangoSchemaTitle">plango スキーマ定義（`sql/plango.sql`）</h2>
+            </div>
+          </div>
+          <ul class="rule-list">
+            <li>参照DDL: `sql/plango.sql`</li>
+            <li>`CREATE TABLE` 定義数: 158 テーブル（2026-06-12 時点）</li>
+            <li>主要テーブル群（接頭辞別）: `ag_*` 24件 / `group_*` 7件 / `user_*` 7件 / `system_*` 6件 / `learning_*` 6件</li>
+            <li>詳細な列定義は下部「テーブル別 API」または `/api/spec` の `table_endpoints` を参照してください。</li>
+          </ul>
         </section>
 
         <section class="two-column">
