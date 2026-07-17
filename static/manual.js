@@ -192,6 +192,41 @@ function createSampleBlock(method, title, sampleText) {
   return block;
 }
 
+function buildDeleteSampleRequest(endpoint) {
+  const fallback = {
+    schema_name: endpoint.schema_name,
+    table_name: endpoint.table_name,
+    search_mode: "and_",
+    selector: { id: "<value>" },
+    options: { limit: 1 },
+  };
+
+  const source = endpoint.post_read_sample_request || endpoint.post_upsert_sample_request;
+  if (!source) {
+    return JSON.stringify(fallback, null, 2);
+  }
+
+  try {
+    const parsed = JSON.parse(source);
+    const selector =
+      parsed.selector && typeof parsed.selector === "object" ? parsed.selector : fallback.selector;
+
+    return JSON.stringify(
+      {
+        schema_name: parsed.schema_name ?? endpoint.schema_name,
+        table_name: parsed.table_name ?? endpoint.table_name,
+        search_mode: parsed.search_mode ?? "and_",
+        selector,
+        options: { limit: 1 },
+      },
+      null,
+      2,
+    );
+  } catch {
+    return JSON.stringify(fallback, null, 2);
+  }
+}
+
 function renderTableEndpoints(items) {
   elements.tableCards.replaceChildren();
   elements.emptyNote.hidden = items.length !== 0;
@@ -215,6 +250,7 @@ function renderTableEndpoints(items) {
       createSampleBlock("GET", "query-string read", endpoint.get_sample_request),
       createSampleBlock("POST", "/read (search)", endpoint.post_read_sample_request),
       createSampleBlock("POST", "/update (upsert)", endpoint.post_upsert_sample_request),
+      createSampleBlock("DELETE", "/delete (delete one)", buildDeleteSampleRequest(endpoint)),
     );
 
     card.append(

@@ -709,6 +709,51 @@
         </article>
 
         <article class="card">
+          <span class="badge post">DELETE</span>
+          <h3>Delete one row</h3>
+          <span class="endpoint-path">/system_api_server/si/v1/execute/sql/delete</span>
+          <p>
+            `POST /update` と同じ selector 指定で一致した行を1件削除します。`values` は指定しません。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>parameter</th>
+                <th>required</th>
+                <th>description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="parameter"><code>table_name</code></td>
+                <td data-label="required">required</td>
+                <td data-label="description">Delete target table name</td>
+              </tr>
+              <tr>
+                <td data-label="parameter"><code>selector</code></td>
+                <td data-label="required">required</td>
+                <td data-label="description">Condition object to identify the row to delete</td>
+              </tr>
+              <tr>
+                <td data-label="parameter"><code>search_mode</code></td>
+                <td data-label="required">optional</td>
+                <td data-label="description"><code>and_</code> or <code>or_</code></td>
+              </tr>
+              <tr>
+                <td data-label="parameter"><code>options</code></td>
+                <td data-label="required">optional</td>
+                <td data-label="description">Optional <code>order_by</code> and <code>limit</code> (delete executes as one-row delete)</td>
+              </tr>
+              <tr>
+                <td data-label="parameter"><code>values</code></td>
+                <td data-label="required">forbidden</td>
+                <td data-label="description">Not allowed for DELETE</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
           <h3>検索のコツ</h3>
           <ul class="list">
             <li>完全一致にしたいときはそのまま指定します。例: <code>{"project_id":"1AS0006368"}</code></li>
@@ -847,6 +892,41 @@
   "header": "Access-Control-Allow-Origin",
   "result": "update",
   "created_id": null
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top: 18px;">
+        <div class="panel">
+          <h3>DELETE request example</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>DELETE /execute/sql/delete</span>
+              <button class="copy-button" data-copy-target="delete-json">コピー</button>
+            </div>
+            <pre id="delete-json">{
+  "table_name": "ifs_projects_table",
+  "search_mode": "and_",
+  "selector": {
+    "project_id": "1AS0006368"
+  },
+  "options": {
+    "limit": 1
+  }
+}</pre>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>DELETE response example</h3>
+          <div class="code-block">
+            <div class="code-head">
+              <span>JSON response</span>
+              <button class="copy-button" data-copy-target="delete-response">コピー</button>
+            </div>
+            <pre id="delete-response">{
+  "result": "delete",
+  "deleted_count": 1
 }</pre>
           </div>
         </div>
@@ -1066,6 +1146,44 @@ End Sub</pre>
           </div>
           <div class="note-box">
             <strong>重要:</strong> このAPIは条件に合った先頭1件を更新します。複数件ヒットする条件では意図しない更新になりやすいため、主キー相当の列で絞る運用を推奨します。
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>6. 削除する</h3>
+          <p class="small">/update と同じ selector 指定で 1 行削除します。values は指定しません。</p>
+          <div class="code-block">
+            <div class="code-head">
+              <span>Sub SampleDeleteRow</span>
+              <button class="copy-button" data-copy-target="vba-delete">コピー</button>
+            </div>
+            <pre id="vba-delete">Sub SampleDeleteRow()
+    Dim requestBody As String
+    Dim responseText As String
+
+    requestBody = Join(Array( _
+        "{", _
+        "  ""table_name"": ""ifs_projects_table"",", _
+        "  ""search_mode"": ""and_"",", _
+        "  ""selector"": {", _
+        "    ""project_id"": ""1AS0006368""", _
+        "  },", _
+        "  ""options"": {", _
+        "    ""limit"": 1", _
+        "  }", _
+        "}" _
+    ), vbCrLf)
+
+    responseText = SendJsonRequest( _
+        "DELETE", _
+        "/system_api_server/si/v1/execute/sql/delete", _
+        requestBody _
+    )
+
+    Sheet1.Range("A10").Value = "削除結果"
+    Sheet1.Range("A11").Value = responseText
+    MsgBox "削除結果を A11 セルに出力しました。"
+End Sub</pre>
           </div>
         </div>
       </div>

@@ -84,6 +84,12 @@ pub struct UpsertResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct DeleteResult {
+    pub result: &'static str,
+    pub deleted_count: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ApiSpecification {
     pub title: String,
     pub version: String,

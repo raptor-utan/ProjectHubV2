@@ -33,3 +33,11 @@
 - `selector` validation remains scalar-only to keep the existing WHERE-clause behavior and avoid changing search semantics.
 - UPDATE/INSERT value binding now serializes JSON-column values and writes them via `CAST(? AS JSON)`.
 - `post_update_table` resolves table columns once and passes them to `upsert_table_row` so SQL generation can decide whether each field is a JSON column.
+
+## 2026-07-17 delete endpoint design
+
+- 新規ルート `DELETE /system_api_server/si/v1/execute/sql/delete` を `table_read_service::configure` に追加した。
+- リクエストボディは `TablePostRequest` を再利用し、`selector/search_mode/options` の解釈は update と同一にした。
+- delete 実行は `utils::delete_table_row` に分離し、`DELETE ... WHERE ... ORDER BY ... LIMIT 1` を組み立てる。
+- 誤削除防止のため、`selector` 必須・`values` 禁止をハンドラで明示的に検証する。
+- CORS 許可メソッドに `DELETE` を追加した。

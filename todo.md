@@ -29,3 +29,18 @@
 ## 2026-06-19 起動IP/ポート設定
 
 - [x] サーバー起動時の bind 先 IP/ポートを `.env` から読み込むように修正する。
+
+## 2026-07-17 DELETE endpoint
+
+- [x] `DELETE /system_api_server/si/v1/execute/sql/delete` エンドポイントを追加する。
+- [x] `POST /update` と同じ selector/search_mode/options で対象行を指定できるようにする。
+- [x] `values` 指定時は 400 を返すようにする。
+- [x] 誤削除防止のため `selector` 未指定時は 400 を返すようにする。
+- [x] `cargo test` を実行して回帰確認する。
+
+## 2026-07-17 HTMLドキュメント反映
+
+- [x] `static/manual.html` の見出しと説明に `/delete` を反映する。
+- [x] `static/manual.js` のテーブルAPIサンプルに `DELETE /delete` サンプルを追加する。
+- [x] `static/api_excel_guide.html` に delete エンドポイント説明・JSON例・VBA例を追加する。
+- [x] ドキュメント更新後に `node --check static/manual.js` と `cargo test` を実行する。

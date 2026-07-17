@@ -6,12 +6,13 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use crate::app_state::AppState;
 use crate::models::{ApiMessage, QueryResult, TablePostRequest};
 use crate::settings::constants::{
-    TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM, TABLE_UPDATE_ROUTE,
+    TABLE_DELETE_ROUTE, TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM,
+    TABLE_UPDATE_ROUTE,
 };
 use crate::utils::{
-    TableApiError, fetch_table_rows, fetch_table_rows_from_selector, find_table_endpoint_spec,
-    upsert_table_row, validate_allowed_schema, validate_discoverable_schema,
-    validate_filter_columns, validate_post_request,
+    TableApiError, delete_table_row, fetch_table_rows, fetch_table_rows_from_selector,
+    find_table_endpoint_spec, upsert_table_row, validate_allowed_schema,
+    validate_discoverable_schema, validate_filter_columns, validate_post_request,
 };
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -21,6 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route(web::post().to(post_read_by_json)),
     );
     cfg.service(web::resource(TABLE_UPDATE_ROUTE).route(web::post().to(post_update_by_json)));
+    cfg.service(web::resource(TABLE_DELETE_ROUTE).route(web::delete().to(delete_by_json)));
 }
 
 /// `table_name` と `schema_name` をクエリで受けてテーブル参照を行う。
@@ -144,6 +146,60 @@ pub async fn post_update_by_json(
     .await
 }
 
+/// JSON body で delete を行う `DELETE /delete` を処理する。
+pub async fn delete_by_json(
+    request: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Bytes,
+) -> HttpResponse {
+    let request_path = request.path().to_string();
+    let payload = match parse_post_request(&body) {
+        Ok(payload) => payload,
+        Err(error) => return build_error_response(&request_path, error),
+    };
+
+    let Some(table_name) = payload.table_name.clone() else {
+        return build_error_response(
+            &request_path,
+            TableApiError::InvalidRequest(
+                "DELETE /delete requires table_name in the JSON body".to_string(),
+            ),
+        );
+    };
+
+    let schema_name = match resolve_payload_schema_name(&payload, &state) {
+        Ok(schema_name) => schema_name,
+        Err(error) => return build_error_response(&request_path, error),
+    };
+
+    if payload.selector.is_empty() {
+        return build_error_response(
+            &request_path,
+            TableApiError::InvalidRequest(
+                "DELETE /delete requires selector in the JSON body".to_string(),
+            ),
+        );
+    }
+
+    if payload.values.is_some() {
+        return build_error_response(
+            &request_path,
+            TableApiError::InvalidRequest(
+                "DELETE /delete does not accept values. Use /system_api_server/si/v1/execute/sql/update for upsert".to_string(),
+            ),
+        );
+    }
+
+    delete_table(
+        schema_name.as_str(),
+        table_name.as_str(),
+        request_path.as_str(),
+        state,
+        payload,
+    )
+    .await
+}
+
 /// テーブル定義に基づく GET テーブル参照を実行する。
 pub async fn read_table(
     schema_name: &str,
@@ -219,6 +275,31 @@ pub async fn post_update_table(
     };
 
     match upsert_table_row(&state.db, schema_name, table_name, &columns, &payload).await {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(error) => build_error_response(request_path, error),
+    }
+}
+
+/// テーブル定義に基づく `DELETE /delete` を実行する。
+pub async fn delete_table(
+    schema_name: &str,
+    table_name: &str,
+    request_path: &str,
+    state: web::Data<AppState>,
+    payload: TablePostRequest,
+) -> HttpResponse {
+    if let Err(error) = validate_post_request(&state.api_spec, schema_name, table_name, &payload) {
+        return build_error_response(request_path, error);
+    }
+
+    if payload.selector.is_empty() {
+        return build_error_response(
+            request_path,
+            TableApiError::InvalidRequest("DELETE /delete requires selector".to_string()),
+        );
+    }
+
+    match delete_table_row(&state.db, schema_name, table_name, &payload).await {
         Ok(result) => HttpResponse::Ok().json(result),
         Err(error) => build_error_response(request_path, error),
     }

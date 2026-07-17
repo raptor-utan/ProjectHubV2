@@ -4,7 +4,7 @@ use serde_json::{Number, Value};
 use sqlx::{MySql, MySqlPool, QueryBuilder, query_as};
 
 use crate::models::{
-    AllowedSchemaSpec, ApiSpecification, QueryOptions, SearchMode, TableColumnSpec,
+    AllowedSchemaSpec, ApiSpecification, DeleteResult, QueryOptions, SearchMode, TableColumnSpec,
     TableEndpointSpec, TablePostRequest, UpsertResult,
 };
 use crate::settings::constants::{TABLE_NAME_QUERY_PARAM, TABLE_SCHEMA_QUERY_PARAM};
@@ -600,6 +600,35 @@ pub async fn upsert_table_row(
     Ok(UpsertResult {
         result: "insert",
         created_id,
+    })
+}
+
+pub async fn delete_table_row(
+    pool: &MySqlPool,
+    schema_name: &str,
+    table_name: &str,
+    request: &TablePostRequest,
+) -> Result<DeleteResult, TableApiError> {
+    if request.selector.is_empty() {
+        return Err(TableApiError::InvalidRequest(
+            "DELETE /delete requires selector".to_string(),
+        ));
+    }
+
+    let qualified_name = qualified_table_name(schema_name, table_name);
+    let mut query_builder = QueryBuilder::<MySql>::new(format!("DELETE FROM {qualified_name}"));
+    append_selector_conditions(&mut query_builder, &request.selector, request.search_mode)?;
+    append_order_by_and_limit(&mut query_builder, &request.options, Some(1));
+
+    let result = query_builder
+        .build()
+        .execute(pool)
+        .await
+        .map_err(TableApiError::QueryFailed)?;
+
+    Ok(DeleteResult {
+        result: "delete",
+        deleted_count: result.rows_affected(),
     })
 }
 

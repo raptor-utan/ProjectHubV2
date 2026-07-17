@@ -52,3 +52,20 @@
 
 ### 仮定
 - JSON 列への書き込み時は `CAST(? AS JSON)` を使用して SQL を組み立てる。
+
+## 2026-07-17 delete endpoint
+
+### 要求
+- `DELETE /system_api_server/si/v1/execute/sql/delete` を追加する。
+- 対象行の指定方法は `POST /update` と同じ JSON 形式（`schema_name`, `table_name`, `selector`, `search_mode`, `options`）を使う。
+
+### 制約
+- `values` は受け付けない。
+- 誤削除防止のため `selector` は必須とする。
+- update と同じく `order_by`/`limit` 指定を受け取り、実行時は1件削除（`LIMIT 1`）とする。
+
+### 出力
+- 正常時は `{"result":"delete","deleted_count":number}` を返す。
+
+### 仮定
+- delete も既存の allowlist / information_schema 検証の対象とする。

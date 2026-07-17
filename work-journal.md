@@ -29,3 +29,8 @@
 - 2026-06-16 15:13 Added insert created_id fallback logic (`LAST_INSERT_ID()` on the same connection and PK-value fallback) for `POST /update` insert responses.
 - 2026-06-16 15:13 Ran `cargo test` and confirmed all tests passed (24 passed, 0 failed).
 - 2026-06-19 12:07 Loaded `.env` before startup bind-address resolution and fixed `build_bind_address` so `PROJECT_HUB_HOST` and `PROJECT_HUB_PORT` are applied.
+- 2026-07-17 13:34 Added `DELETE /system_api_server/si/v1/execute/sql/delete` with update-compatible selector/search_mode/options handling and one-row deletion semantics.
+- 2026-07-17 13:34 Added `selector` required / `values` forbidden validation for delete requests and enabled CORS `DELETE` method.
+- 2026-07-17 13:34 Ran `cargo test` and confirmed all tests passed (24 passed, 0 failed).
+- 2026-07-17 13:48 Updated `static/manual.html`/`static/manual.js`/`static/api_excel_guide.html` to document `DELETE /system_api_server/si/v1/execute/sql/delete` with JSON and VBA examples.
+- 2026-07-17 13:48 Ran `node --check static/manual.js` and `cargo test` after HTML/JS documentation updates (24 passed, 0 failed).

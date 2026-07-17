@@ -9,8 +9,8 @@ use crate::models::{
     TableColumnSpec, TableEndpointSpec, TableGetApiSpec, TablePostApiSpec,
 };
 use crate::settings::constants::{
-    TABLE_METADATA_ROUTE, TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE, TABLE_SCHEMA_QUERY_PARAM,
-    TABLE_UPDATE_ROUTE,
+    TABLE_DELETE_ROUTE, TABLE_METADATA_ROUTE, TABLE_NAME_QUERY_PARAM, TABLE_READ_ROUTE,
+    TABLE_SCHEMA_QUERY_PARAM, TABLE_UPDATE_ROUTE,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -36,7 +36,7 @@ struct InformationSchemaNameRow {
     schema_name: String,
 }
 
-/// information_schema をもとに API 仕様を組み立てます。
+/// information_schema と allowlist 情報から API 仕様を生成する。
 pub async fn build_api_spec(
     pool: &MySqlPool,
     allowed_schemas: &[String],
@@ -48,20 +48,22 @@ pub async fn build_api_spec(
         fetch_allowed_schema_specs(pool, allowed_schemas, default_schema, &table_endpoints).await?;
 
     Ok(ApiSpecification {
-        title: "ProjectHubV2 API仕様".to_string(),
-        version: "1.7.0".to_string(),
+        title: "ProjectHubV2 API Specification".to_string(),
+        version: "1.8.0".to_string(),
         generated_at: Local::now().to_rfc3339(),
         overview: vec![
-            "GET /read はクエリ文字列検索、POST /read は JSON 条件検索、POST /update は upsert を実行します。"
-                .to_string(),
+            "GET /read performs query-string search.".to_string(),
+            "POST /read performs JSON search.".to_string(),
+            "POST /update performs upsert.".to_string(),
+            "DELETE /delete deletes one matching row.".to_string(),
             format!(
-                "`{TABLE_SCHEMA_QUERY_PARAM}` は GET/POST の両方で利用できます。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+                "`{TABLE_SCHEMA_QUERY_PARAM}` is optional for GET/POST/DELETE; default schema is `{default_schema}`."
             ),
             format!(
-                "利用可能スキーマは allowlist で制御されます: {}",
+                "Allowed schemas are controlled by allowlist: {}",
                 allowed_schemas.join(", ")
             ),
-            "利用可能テーブルは `PROJECT_HUB_ALLOWED_TABLES`、未設定時は `information_schema.tables` から許可スキーマ内の全テーブルを取得します。"
+            "Allowed tables are controlled by `PROJECT_HUB_ALLOWED_TABLES`; if unset, all base tables in allowed schemas are used."
                 .to_string(),
         ],
         allowed_schemas: allowed_schemas.to_vec(),
@@ -70,83 +72,87 @@ pub async fn build_api_spec(
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/".to_string(),
-                summary: "/manual へリダイレクトします。".to_string(),
+                summary: "Redirects to /manual.".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/manual".to_string(),
-                summary: "HTML 形式の API マニュアルを表示します。".to_string(),
+                summary: "Returns the HTML API manual.".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/api/spec".to_string(),
-                summary: "マニュアル表示用の JSON API 仕様を返します。".to_string(),
+                summary: "Returns this API specification as JSON.".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: "/health".to_string(),
-                summary: "ヘルスチェック結果を返します。".to_string(),
+                summary: "Returns health status.".to_string(),
             },
             SupportEndpointSpec {
                 method: "GET".to_string(),
                 path: TABLE_METADATA_ROUTE.to_string(),
-                summary: "allowlist 対象テーブルのテーブルコメントと列コメントを JSON で返します。"
-                    .to_string(),
+                summary:
+                    "Returns allowlisted table names with table comments and column comments."
+                        .to_string(),
+            },
+            SupportEndpointSpec {
+                method: "DELETE".to_string(),
+                path: TABLE_DELETE_ROUTE.to_string(),
+                summary:
+                    "Deletes one matching row by selector/search_mode/options in JSON body."
+                        .to_string(),
             },
         ],
         table_get_api: TableGetApiSpec {
             method: "GET".to_string(),
             route_pattern: TABLE_READ_ROUTE.to_string(),
             filtering_behavior: vec![
-                format!("`{TABLE_NAME_QUERY_PARAM}` は必須です。"),
+                format!("`{TABLE_NAME_QUERY_PARAM}` is required."),
                 format!(
-                    "`{TABLE_SCHEMA_QUERY_PARAM}` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+                    "`{TABLE_SCHEMA_QUERY_PARAM}` is optional. If omitted, `{default_schema}` is used."
                 ),
-                "追加のクエリパラメータは対象テーブルの列名と解釈され、AND 条件で検索します。"
-                    .to_string(),
-                "`%` を含む文字列は LIKE 条件として扱います。".to_string(),
+                "Other query parameters are treated as AND filters for allowed columns.".to_string(),
+                "A filter value containing `%` uses LIKE search.".to_string(),
             ],
             query_parameters: vec![
                 RequestFieldSpec {
                     name: TABLE_SCHEMA_QUERY_PARAM.to_string(),
                     required: false,
                     data_type: "string".to_string(),
-                    description: "対象スキーマ名。allowlist に含まれる値のみ指定できます。"
-                        .to_string(),
+                    description: "Target schema name (must be allowlisted).".to_string(),
                 },
                 RequestFieldSpec {
                     name: TABLE_NAME_QUERY_PARAM.to_string(),
                     required: true,
                     data_type: "string".to_string(),
                     description:
-                        "対象テーブル名。allowlist に含まれ、information_schema で解決できる必要があります。"
+                        "Target table name (must be allowlisted and discoverable in information_schema)."
                             .to_string(),
                 },
                 RequestFieldSpec {
                     name: "<column_name>".to_string(),
                     required: false,
                     data_type: "string".to_string(),
-                    description: "列名ごとの検索条件。`%` を含むと LIKE 検索になります。"
-                        .to_string(),
+                    description: "Column filter value. `%` enables LIKE search.".to_string(),
                 },
             ],
             responses: vec![
                 ResponseSpec {
                     status: 200,
-                    body: "テーブル行の JSON 配列".to_string(),
-                    description: "条件に一致した行を返します。".to_string(),
+                    body: "table rows as JSON array".to_string(),
+                    description: "Returns rows that match filters.".to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須パラメータ不足、allowlist 違反、不正な列名などの入力エラーです。"
-                            .to_string(),
+                        "Invalid parameter, allowlist violation, or unsupported column.".to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
+                    description: "Database query failed.".to_string(),
                 },
             ],
         },
@@ -155,16 +161,17 @@ pub async fn build_api_spec(
             read_route_pattern: TABLE_READ_ROUTE.to_string(),
             upsert_route_pattern: TABLE_UPDATE_ROUTE.to_string(),
             behavior: vec![
-                "POST /read は JSON 条件検索を行い、`{\"result\":[...]}` を返します。"
-                    .to_string(),
-                "POST /update は JSON upsert を行い、update か insert の結果を返します。"
-                    .to_string(),
+                "POST /read performs JSON search and returns {\"result\":[...]}.".to_string(),
+                "POST /update performs JSON upsert and returns update/insert result.".to_string(),
                 format!(
-                    "`schema_name` は任意です。未指定時はデフォルトスキーマ `{default_schema}` を使用します。"
+                    "DELETE {TABLE_DELETE_ROUTE} uses selector/search_mode/options and deletes one matching row."
                 ),
-                "`selector` は `and_` / `or_` を選べます。`options.order_by` と `options.limit` に対応します。"
+                format!(
+                    "`schema_name` is optional. If omitted, the default schema `{default_schema}` is used."
+                ),
+                "`selector` supports `and_` / `or_`, and `options.order_by` + `options.limit`."
                     .to_string(),
-                "POST /update の `values` は必須です。新規 insert 時は `selector` と `values` を合わせて使用します。"
+                "POST /update requires `values`. DELETE /delete does not accept `values`."
                     .to_string(),
             ],
             request_fields: vec![
@@ -172,84 +179,81 @@ pub async fn build_api_spec(
                     name: "schema_name".to_string(),
                     required: false,
                     data_type: "string".to_string(),
-                    description: "対象スキーマ名。allowlist に含まれる値のみ指定できます。"
-                        .to_string(),
+                    description: "Target schema name (allowlisted only).".to_string(),
                 },
                 RequestFieldSpec {
                     name: "table_name".to_string(),
                     required: true,
                     data_type: "string".to_string(),
                     description:
-                        "対象テーブル名。allowlist に含まれ、information_schema で解決できる必要があります。"
+                        "Target table name (allowlisted and discoverable in information_schema)."
                             .to_string(),
                 },
                 RequestFieldSpec {
                     name: "selector".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description:
-                        "検索条件。値には string / number / bool / null を使用できます。"
-                            .to_string(),
+                    description: "Search selector. Only scalar values are allowed.".to_string(),
                 },
                 RequestFieldSpec {
                     name: "search_mode".to_string(),
                     required: false,
                     data_type: "`and_` | `or_`".to_string(),
-                    description: "selector の結合条件です。省略時は `or_` です。".to_string(),
+                    description: "Selector join operator. Default is `or_`.".to_string(),
                 },
                 RequestFieldSpec {
                     name: "options".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "`order_by` と `limit` を指定できます。".to_string(),
+                    description: "Optional `order_by` and `limit`.".to_string(),
                 },
                 RequestFieldSpec {
                     name: "values".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "POST /update 用の更新値です。JSON 列は配列/オブジェクト（ネスト JSON）を受け付け、それ以外の列は scalar 値のみ受け付けます。POST /read では指定できません。"
-                        .to_string(),
+                    description:
+                        "Update values for POST /update. JSON columns accept nested JSON values."
+                            .to_string(),
                 },
             ],
             read_responses: vec![
                 ResponseSpec {
                     status: 200,
                     body: "{\"result\":[...]}".to_string(),
-                    description: "JSON 条件検索の結果です。".to_string(),
+                    description: "JSON search result.".to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須 JSON 欠落、allowlist 違反、不正な列名、不正 JSON などの入力エラーです。"
+                        "Invalid JSON, allowlist violation, invalid columns, or invalid values."
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
+                    description: "Database query failed.".to_string(),
                 },
             ],
             upsert_responses: vec![
                 ResponseSpec {
                     status: 200,
-                    body: "{\"result\":\"update|insert\",\"created_id\":number|null}"
-                        .to_string(),
+                    body: "{\"result\":\"update|insert\",\"created_id\":number|null}".to_string(),
                     description:
-                        "insert 時は auto increment の ID を `created_id` に返します。"
+                        "Upsert result. For insert, auto-increment id may be returned as `created_id`."
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 400,
                     body: "ApiMessage".to_string(),
                     description:
-                        "必須 JSON 欠落、allowlist 違反、不正な列名、不正 JSON などの入力エラーです。"
+                        "Invalid JSON, allowlist violation, invalid columns, or invalid values."
                             .to_string(),
                 },
                 ResponseSpec {
                     status: 500,
                     body: "ApiMessage".to_string(),
-                    description: "SQL 実行に失敗した場合のエラーです。".to_string(),
+                    description: "Database query failed.".to_string(),
                 },
             ],
         },
@@ -341,7 +345,7 @@ async fn fetch_table_endpoints(
             let schema_found = !columns.is_empty();
             let summary = if schema_found {
                 format!(
-                    "{}.{} can be read by GET or POST /read and updated by POST /update within the configured allowlists",
+                    "{}.{} can be read by GET or POST /read, updated by POST /update, and deleted by DELETE /delete within the configured allowlists",
                     entry.schema_name, entry.table_name
                 )
             } else {
