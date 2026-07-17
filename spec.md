@@ -39,3 +39,16 @@
 ## 2026-05-20 metadata endpoint
 - `GET /system_api_server/si/v1/execute/sql/table-metadata` returns allowlisted table names, table comments, and column comments as JSON.
 - Optional query parameter: `schema_name`. When omitted, the endpoint returns all discoverable allowlisted tables across allowed schemas.
+
+## 2026-06-16 nested JSON upsert
+
+### 要求
+- `POST /system_api_server/si/v1/execute/sql/update` の `values` で、JSON 列に配列/オブジェクト（ネスト JSON）を保存できるようにする。
+- 既存の scalar 値（string / number / bool / null）も従来通り受け付ける。
+
+### 制約
+- `selector` は従来通り scalar 値のみを許可する。
+- 配列/オブジェクトを指定できるのは `data_type = json` の列のみとし、非 JSON 列では 400 を返す。
+
+### 仮定
+- JSON 列への書き込み時は `CAST(? AS JSON)` を使用して SQL を組み立てる。

@@ -23,3 +23,9 @@
 - 2026-06-12 Updated `static/manual.html` to reflect `sql/plango.sql` schema summary (`CREATE TABLE` count and prefix-based table groups).
 - 2026-06-12 No test run (static HTML/documentation update only).
 - 2026-06-12 16:19 Added a guard for allowlisted-but-undiscoverable tables so /read and /update return 400 instead of a DB-level 500, and added regression tests.
+- 2026-06-12 17:10 Changed table allowlist fallback: when PROJECT_HUB_ALLOWED_TABLES is unset, load all base tables from information_schema.tables within PROJECT_HUB_ALLOWED_SCHEMAS.
+- 2026-06-16 14:54 Added nested JSON support for `POST /update` values on JSON columns, kept selector scalar-only, and updated upsert SQL binding with `CAST(? AS JSON)`.
+- 2026-06-16 14:54 Ran `cargo test` and confirmed all tests passed (21 passed, 0 failed).
+- 2026-06-16 15:13 Added insert created_id fallback logic (`LAST_INSERT_ID()` on the same connection and PK-value fallback) for `POST /update` insert responses.
+- 2026-06-16 15:13 Ran `cargo test` and confirmed all tests passed (24 passed, 0 failed).
+- 2026-06-19 12:07 Loaded `.env` before startup bind-address resolution and fixed `build_bind_address` so `PROJECT_HUB_HOST` and `PROJECT_HUB_PORT` are applied.

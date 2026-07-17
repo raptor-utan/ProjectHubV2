@@ -213,7 +213,12 @@ pub async fn post_update_table(
         return build_error_response(request_path, error);
     }
 
-    match upsert_table_row(&state.db, schema_name, table_name, &payload).await {
+    let columns = match find_table_endpoint_spec(&state.api_spec, schema_name, table_name) {
+        Ok(endpoint) => endpoint.columns.clone(),
+        Err(error) => return build_error_response(request_path, error),
+    };
+
+    match upsert_table_row(&state.db, schema_name, table_name, &columns, &payload).await {
         Ok(result) => HttpResponse::Ok().json(result),
         Err(error) => build_error_response(request_path, error),
     }

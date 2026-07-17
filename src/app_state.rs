@@ -1,9 +1,9 @@
 use dotenvy::from_path;
 use sqlx::MySqlPool;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+use sqlx::{FromRow, MySql, QueryBuilder};
 use std::collections::BTreeSet;
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -16,7 +16,12 @@ const DEFAULT_DB_MAX_CONNECTIONS: u32 = 10;
 const ALLOWED_SCHEMAS_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_SCHEMAS";
 const ALLOWED_TABLES_ENV_NAME: &str = "PROJECT_HUB_ALLOWED_TABLES";
 const DEFAULT_SCHEMA_ENV_NAME: &str = "PROJECT_HUB_DEFAULT_SCHEMA";
-const SQL_DIRECTORY_NAME: &str = "./sql";
+
+#[derive(Debug, FromRow)]
+struct InformationSchemaTableNameRow {
+    schema_name: String,
+    table_name: String,
+}
 
 #[derive(Clone, Debug)]
 struct DatabaseConnectionParts {
@@ -63,7 +68,7 @@ pub struct AppState {
     pub allowed_schemas: Vec<String>,
 }
 
-fn load_project_env_file() {
+pub fn load_project_env_file() {
     let Some(env_path) = resolve_env_file_path() else {
         return;
     };
@@ -164,7 +169,8 @@ fn read_allowed_schemas(default_schema: &str) -> Vec<String> {
     allowed_schemas
 }
 
-fn read_allowed_tables(
+async fn read_allowed_tables(
+    pool: &MySqlPool,
     default_schema: &str,
     allowed_schemas: &[String],
 ) -> Vec<TableAllowlistEntry> {
@@ -177,51 +183,47 @@ fn read_allowed_tables(
         return allowed_tables;
     }
 
-    let sql_directory_path = PathBuf::from(format!("{}", SQL_DIRECTORY_NAME));
-    let directory_entries = fs::read_dir(&sql_directory_path).unwrap_or_else(|error| {
-        panic!(
-            "Failed to read SQL directory {}: {error}",
-            sql_directory_path.display()
-        )
-    });
-    let allowed_schema_names = allowed_schemas
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    let mut allowed_tables = BTreeSet::new();
+    read_all_tables_from_information_schema(pool, allowed_schemas).await
+}
 
-    for directory_entry in directory_entries {
-        let entry = directory_entry.unwrap_or_else(|error| {
-            panic!(
-                "Failed to enumerate SQL directory {}: {error}",
-                sql_directory_path.display()
-            )
-        });
-        let file_path = entry.path();
+async fn read_all_tables_from_information_schema(
+    pool: &MySqlPool,
+    allowed_schemas: &[String],
+) -> Vec<TableAllowlistEntry> {
+    if allowed_schemas.is_empty() {
+        return Vec::new();
+    }
 
-        if !file_path.is_file()
-            || file_path.extension().and_then(|value| value.to_str()) != Some("sql")
-        {
-            continue;
-        }
+    let mut query_builder = QueryBuilder::<MySql>::new(
+        "SELECT \
+             CAST(TABLE_SCHEMA AS CHAR(255)) AS schema_name, \
+             CAST(TABLE_NAME AS CHAR(255)) AS table_name \
+         FROM information_schema.tables \
+         WHERE TABLE_TYPE = 'BASE TABLE' \
+           AND TABLE_SCHEMA IN (",
+    );
 
-        let file_stem = file_path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_string();
-        let file_contents = fs::read_to_string(&file_path).unwrap_or_else(|error| {
-            panic!("Failed to read SQL file {}: {error}", file_path.display())
-        });
-
-        for entry in
-            parse_allowed_tables_from_sql(&file_contents, &file_stem, &allowed_schema_names)
-        {
-            allowed_tables.insert(entry);
+    {
+        let mut separated = query_builder.separated(", ");
+        for schema_name in allowed_schemas {
+            separated.push_bind(schema_name);
         }
     }
 
-    allowed_tables.into_iter().collect()
+    query_builder.push(") ORDER BY TABLE_SCHEMA, TABLE_NAME");
+
+    let rows: Vec<InformationSchemaTableNameRow> = query_builder
+        .build_query_as::<InformationSchemaTableNameRow>()
+        .fetch_all(pool)
+        .await
+        .expect("Failed to read table allowlist from information_schema.tables");
+
+    rows.into_iter()
+        .map(|row| TableAllowlistEntry {
+            schema_name: row.schema_name,
+            table_name: row.table_name,
+        })
+        .collect()
 }
 
 fn parse_table_list(
@@ -285,82 +287,6 @@ fn parse_table_entry(
         schema_name,
         table_name,
     }
-}
-
-fn parse_allowed_tables_from_sql(
-    sql_text: &str,
-    file_stem: &str,
-    allowed_schemas: &[&str],
-) -> Vec<TableAllowlistEntry> {
-    let mut allowed_tables = Vec::new();
-
-    for line in sql_text.lines() {
-        let trimmed_line = line.trim_start();
-        let lowercase_line = trimmed_line.to_ascii_lowercase();
-        if !lowercase_line.starts_with("create table ") {
-            continue;
-        }
-
-        let raw_identifier = &trimmed_line["create table ".len()..];
-        let raw_identifier = raw_identifier
-            .strip_prefix("if not exists ")
-            .unwrap_or(raw_identifier);
-        let table_identifier = raw_identifier
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .trim_end_matches('(')
-            .trim_matches('`');
-
-        let Some((schema_name, table_name)) =
-            resolve_table_identifier(table_identifier, file_stem, allowed_schemas)
-        else {
-            continue;
-        };
-
-        allowed_tables.push(TableAllowlistEntry {
-            schema_name,
-            table_name,
-        });
-    }
-
-    allowed_tables
-}
-
-fn resolve_table_identifier(
-    table_identifier: &str,
-    file_stem: &str,
-    allowed_schemas: &[&str],
-) -> Option<(String, String)> {
-    if table_identifier.is_empty() {
-        return None;
-    }
-
-    if let Some((schema_name, table_name)) = table_identifier.split_once('.') {
-        let schema_name = normalize_identifier(schema_name)?;
-        let table_name = normalize_identifier(table_name)?;
-
-        if allowed_schemas
-            .iter()
-            .any(|allowed_schema| allowed_schema == &schema_name)
-        {
-            return Some((schema_name, table_name));
-        }
-
-        return None;
-    }
-
-    let table_name = normalize_identifier(table_identifier)?;
-    let file_schema_name = normalize_identifier(file_stem)?;
-
-    if allowed_schemas
-        .iter()
-        .any(|allowed_schema| allowed_schema == &file_schema_name)
-    {
-        return Some((file_schema_name, table_name));
-    }
-
-    None
 }
 
 fn normalize_identifier(identifier: &str) -> Option<String> {
@@ -516,7 +442,7 @@ pub async fn build_app_state() -> AppState {
     let db = generate_pool().await;
     let default_schema = resolve_default_schema(&db).await;
     let allowed_schemas = read_allowed_schemas(&default_schema);
-    let allowed_tables = read_allowed_tables(&default_schema, &allowed_schemas);
+    let allowed_tables = read_allowed_tables(&db, &default_schema, &allowed_schemas).await;
     let api_spec = build_api_spec(&db, &allowed_schemas, &allowed_tables, &default_schema)
         .await
         .expect("Failed to build API specification");
@@ -532,8 +458,8 @@ pub async fn build_app_state() -> AppState {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_percent_encoded_value, parse_allowed_tables_from_sql, parse_schema_list,
-        parse_table_list, resolve_env_file_path_from,
+        decode_percent_encoded_value, parse_schema_list, parse_table_list,
+        resolve_env_file_path_from,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -602,32 +528,6 @@ mod tests {
         let decoded = decode_percent_encoded_value("plain-password");
 
         assert_eq!(decoded, None);
-    }
-
-    #[test]
-    fn parse_allowed_tables_from_sql_uses_file_stem_for_unqualified_names() {
-        let tables = parse_allowed_tables_from_sql(
-            "create table sample_table\n(\n    id int\n);\n",
-            "plango",
-            &["plango"],
-        );
-
-        assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].schema_name, "plango");
-        assert_eq!(tables[0].table_name, "sample_table");
-    }
-
-    #[test]
-    fn parse_allowed_tables_from_sql_accepts_qualified_names_from_aggregate_sql() {
-        let tables = parse_allowed_tables_from_sql(
-            "create table ifs_reference_data.sample_table\n(\n    id int\n);\ncreate table other_schema.ignored_table\n(\n    id int\n);\n",
-            "system_database",
-            &["ifs_reference_data"],
-        );
-
-        assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].schema_name, "ifs_reference_data");
-        assert_eq!(tables[0].table_name, "sample_table");
     }
 
     #[test]

@@ -8,21 +8,14 @@ mod utils;
 
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, web};
-use app_state::build_app_state;
+use app_state::{build_app_state, load_project_env_file};
 use std::env;
 
 const DEFAULT_HOST: &str = "0.0.0.0";
 const DEFAULT_PORT: u16 = 8810;
 
 fn build_bind_address() -> String {
-    // let host = env::var("PROJECT_HUB_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
-    // let port = env::var("PROJECT_HUB_PORT")
-    //     .ok()
-    //     .and_then(|value| value.parse::<u16>().ok())
-    //     .unwrap_or(DEFAULT_PORT);
-    //
-    // format!("{host}:{port}");
-    let host = DEFAULT_HOST.to_string();
+    let host = env::var("PROJECT_HUB_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
     let port = env::var("PROJECT_HUB_PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -33,6 +26,7 @@ fn build_bind_address() -> String {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    load_project_env_file();
     let bind_address = build_bind_address();
     let state = web::Data::new(build_app_state().await);
 

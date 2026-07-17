@@ -17,3 +17,15 @@
 - [x] `GET /system_api_server/si/v1/execute/sql/table-metadata` ã§ allowlist å¯¾è±¡ãƒ†ãƒ¼ãƒ–ãƒ«ã®ãƒ†ãƒ¼ãƒ–ãƒ«ã‚³ãƒ¡ãƒ³ãƒˆã¨åˆ—ã‚³ãƒ¡ãƒ³ãƒˆã‚’ JSON è¿”å´ã§ãã‚‹ã‚ˆã†ã«ã™ã‚‹ã€‚
 - [x] `sql/plango.sql` ã®æœ€æ–° DDL ã‚’ã‚‚ã¨ã« `static/manual.html` ã®ã‚¹ã‚­ãƒ¼ãƒžèª¬æ˜Žã‚’æ›´æ–°ã™ã‚‹ã€‚
 - [x] information_schema ‚Å–¢‰ðŒˆ‚Ìƒe[ƒuƒ‹‚É‘Î‚·‚é /read / /update ‚ð 500 ‚Å‚Í‚È‚­ 400 ‚Å•Ô‚·‚æ‚¤‚ÉC³‚·‚éB
+
+
+## 2026-06-16 nested JSON upsert
+
+- [x] POST /update ‚Ì values ‚Å JSON —ñ‚É”z—ñ/ƒIƒuƒWƒFƒNƒg‚ð‹–‰Â‚·‚éB
+- [x] ”ñ JSON —ñ‚Ö‚Ì”z—ñ/ƒIƒuƒWƒFƒNƒgŽw’è‚Í 400 ƒGƒ‰[‚É‚·‚éB
+- [x] JSON —ñ‚Ì UPDATE/INSERT SQL ‚Å CAST(? AS JSON) ‚ðŽg‚¤B
+- [x] validate_post_request ‚Ì‰ñ‹AƒeƒXƒgi‹–‰Â/‹‘”ÛƒP[ƒXj‚ð’Ç‰Á‚·‚éB
+
+## 2026-06-19 èµ·å‹•IP/ãƒãƒ¼ãƒˆè¨­å®š
+
+- [x] ã‚µãƒ¼ãƒãƒ¼èµ·å‹•æ™‚ã® bind å…ˆ IP/ãƒãƒ¼ãƒˆã‚’ `.env` ã‹ã‚‰èª­ã¿è¾¼ã‚€ã‚ˆã†ã«ä¿®æ­£ã™ã‚‹ã€‚

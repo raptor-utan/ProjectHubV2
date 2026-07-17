@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{Number, Value};
-use sqlx::{MySql, MySqlPool, QueryBuilder};
+use sqlx::{MySql, MySqlPool, QueryBuilder, query_as};
 
 use crate::models::{
     AllowedSchemaSpec, ApiSpecification, QueryOptions, SearchMode, TableColumnSpec,
@@ -111,7 +111,13 @@ fn ensure_allowed_column(allowed_columns: &[&str], column: &str) -> Result<(), T
     Ok(())
 }
 
-fn ensure_supported_value(value: &Value, field_name: &str) -> Result<(), TableApiError> {
+fn is_json_column(columns: &[TableColumnSpec], column_name: &str) -> bool {
+    columns
+        .iter()
+        .any(|column| column.name == column_name && column.data_type.eq_ignore_ascii_case("json"))
+}
+
+fn ensure_supported_selector_value(value: &Value, field_name: &str) -> Result<(), TableApiError> {
     match value {
         Value::Null | Value::String(_) | Value::Bool(_) | Value::Number(_) => Ok(()),
         Value::Array(_) | Value::Object(_) => Err(TableApiError::InvalidRequest(format!(
@@ -120,7 +126,21 @@ fn ensure_supported_value(value: &Value, field_name: &str) -> Result<(), TableAp
     }
 }
 
-fn push_json_value(
+fn ensure_supported_update_value(
+    value: &Value,
+    field_name: &str,
+    allow_nested_json: bool,
+) -> Result<(), TableApiError> {
+    match value {
+        Value::Null | Value::String(_) | Value::Bool(_) | Value::Number(_) => Ok(()),
+        Value::Array(_) | Value::Object(_) if allow_nested_json => Ok(()),
+        Value::Array(_) | Value::Object(_) => Err(TableApiError::InvalidRequest(format!(
+            "{field_name} supports array/object values only when the target column data_type is json"
+        ))),
+    }
+}
+
+fn push_scalar_value(
     builder: &mut QueryBuilder<'_, MySql>,
     value: &Value,
 ) -> Result<(), TableApiError> {
@@ -145,6 +165,37 @@ fn push_json_value(
     }
 
     Ok(())
+}
+
+fn push_json_document_value(
+    builder: &mut QueryBuilder<'_, MySql>,
+    value: &Value,
+) -> Result<(), TableApiError> {
+    let encoded_json = serde_json::to_string(value).map_err(|error| {
+        TableApiError::InvalidRequest(format!("Failed to encode JSON value: {error}"))
+    })?;
+
+    builder.push("CAST(");
+    builder.push_bind(encoded_json);
+    builder.push(" AS JSON)");
+    Ok(())
+}
+
+fn push_upsert_value(
+    builder: &mut QueryBuilder<'_, MySql>,
+    value: &Value,
+    as_json_document: bool,
+) -> Result<(), TableApiError> {
+    if as_json_document {
+        if value.is_null() {
+            builder.push("NULL");
+            return Ok(());
+        }
+
+        return push_json_document_value(builder, value);
+    }
+
+    push_scalar_value(builder, value)
 }
 
 fn push_number_value(
@@ -202,7 +253,7 @@ fn append_selector_conditions(
             }
             _ => {
                 builder.push("= ");
-                push_json_value(builder, value)?;
+                push_scalar_value(builder, value)?;
             }
         }
     }
@@ -284,6 +335,36 @@ fn build_insert_values(request: &TablePostRequest) -> BTreeMap<String, Value> {
     insert_values
 }
 
+fn parse_u64_value(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(number) => number.as_u64().or_else(|| {
+            number
+                .as_i64()
+                .and_then(|value| (value >= 0).then_some(value as u64))
+        }),
+        Value::String(text) => text.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn extract_created_id_from_insert_values(
+    table_columns: &[TableColumnSpec],
+    values: &BTreeMap<String, Value>,
+) -> Option<u64> {
+    let primary_key_columns = table_columns
+        .iter()
+        .filter(|column| column.key_type.as_deref() == Some("PRI"))
+        .collect::<Vec<_>>();
+
+    if primary_key_columns.len() != 1 {
+        return None;
+    }
+
+    let primary_key_name = primary_key_columns[0].name.as_str();
+    let primary_key_value = values.get(primary_key_name)?;
+    parse_u64_value(primary_key_value)
+}
+
 pub fn validate_allowed_schema(
     allowed_schemas: &[String],
     schema_name: &str,
@@ -361,16 +442,25 @@ pub fn validate_post_request(
         }
     }
 
-    let allowed_columns = allowed_columns(api_spec, schema_name, table_name)?;
+    let endpoint = find_table_endpoint_spec(api_spec, schema_name, table_name)?;
+    let allowed_columns = endpoint
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
     for (column, value) in &request.selector {
         ensure_allowed_column(&allowed_columns, column)?;
-        ensure_supported_value(value, column)?;
+        ensure_supported_selector_value(value, column)?;
     }
 
     if let Some(values) = &request.values {
         for (column, value) in values {
             ensure_allowed_column(&allowed_columns, column)?;
-            ensure_supported_value(value, column)?;
+            ensure_supported_update_value(
+                value,
+                column,
+                is_json_column(&endpoint.columns, column),
+            )?;
         }
     }
 
@@ -454,6 +544,7 @@ pub async fn upsert_table_row(
     pool: &MySqlPool,
     schema_name: &str,
     table_name: &str,
+    table_columns: &[TableColumnSpec],
     request: &TablePostRequest,
 ) -> Result<UpsertResult, TableApiError> {
     let insert_values = build_insert_values(request);
@@ -464,7 +555,8 @@ pub async fn upsert_table_row(
     }
 
     if request.selector.is_empty() {
-        let created_id = insert_table_row(pool, schema_name, table_name, &insert_values).await?;
+        let created_id =
+            insert_table_row(pool, schema_name, table_name, table_columns, &insert_values).await?;
         return Ok(UpsertResult {
             result: "insert",
             created_id,
@@ -490,6 +582,7 @@ pub async fn upsert_table_row(
                     &request.selector,
                     request.search_mode,
                     &request.options,
+                    table_columns,
                     values,
                 )
                 .await?;
@@ -502,7 +595,8 @@ pub async fn upsert_table_row(
         });
     }
 
-    let created_id = insert_table_row(pool, schema_name, table_name, &insert_values).await?;
+    let created_id =
+        insert_table_row(pool, schema_name, table_name, table_columns, &insert_values).await?;
     Ok(UpsertResult {
         result: "insert",
         created_id,
@@ -537,6 +631,7 @@ async fn update_first_matching_row(
     selector: &BTreeMap<String, Value>,
     search_mode: SearchMode,
     options: &QueryOptions,
+    table_columns: &[TableColumnSpec],
     values: &BTreeMap<String, Value>,
 ) -> Result<(), TableApiError> {
     let qualified_name = qualified_table_name(schema_name, table_name);
@@ -553,7 +648,11 @@ async fn update_first_matching_row(
         query_builder.push("`");
         query_builder.push(column.as_str());
         query_builder.push("` = ");
-        push_json_value(&mut query_builder, value)?;
+        push_upsert_value(
+            &mut query_builder,
+            value,
+            is_json_column(table_columns, column),
+        )?;
     }
 
     append_selector_conditions(&mut query_builder, selector, search_mode)?;
@@ -571,6 +670,7 @@ async fn insert_table_row(
     pool: &MySqlPool,
     schema_name: &str,
     table_name: &str,
+    table_columns: &[TableColumnSpec],
     values: &BTreeMap<String, Value>,
 ) -> Result<Option<u64>, TableApiError> {
     let qualified_name = qualified_table_name(schema_name, table_name);
@@ -592,31 +692,43 @@ async fn insert_table_row(
     query_builder.push(") VALUES (");
 
     let mut is_first = true;
-    for value in values.values() {
+    for (column, value) in values {
         if is_first {
             is_first = false;
         } else {
             query_builder.push(", ");
         }
 
-        push_json_value(&mut query_builder, value)?;
+        push_upsert_value(
+            &mut query_builder,
+            value,
+            is_json_column(table_columns, column),
+        )?;
     }
 
     query_builder.push(")");
 
-    query_builder
+    let mut connection = pool.acquire().await.map_err(TableApiError::QueryFailed)?;
+    let result = query_builder
         .build()
-        .execute(pool)
+        .execute(&mut *connection)
         .await
-        .map(|result| {
-            let last_insert_id = result.last_insert_id();
-            if last_insert_id == 0 {
-                None
-            } else {
-                Some(last_insert_id)
-            }
-        })
-        .map_err(TableApiError::QueryFailed)
+        .map_err(TableApiError::QueryFailed)?;
+
+    let last_insert_id = result.last_insert_id();
+    if last_insert_id != 0 {
+        return Ok(Some(last_insert_id));
+    }
+
+    let (session_last_insert_id,): (u64,) = query_as("SELECT LAST_INSERT_ID()")
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(TableApiError::QueryFailed)?;
+    if session_last_insert_id != 0 {
+        return Ok(Some(session_last_insert_id));
+    }
+
+    Ok(extract_created_id_from_insert_values(table_columns, values))
 }
 
 #[cfg(test)]
@@ -626,8 +738,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        TableApiError, find_table_endpoint_spec, normalize_selector, validate_allowed_schema,
-        validate_discoverable_schema, validate_post_request,
+        TableApiError, extract_created_id_from_insert_values, find_table_endpoint_spec,
+        normalize_selector, validate_allowed_schema, validate_discoverable_schema,
+        validate_post_request,
     };
     use crate::models::{
         AllowedSchemaSpec, ApiSpecification, QueryOptions, RequestFieldSpec, ResponseSpec,
@@ -705,6 +818,14 @@ mod tests {
                         key_type: None,
                         ordinal_position: 2,
                     },
+                    TableColumnSpec {
+                        name: "payload".to_string(),
+                        data_type: "json".to_string(),
+                        column_type: "json".to_string(),
+                        nullable: true,
+                        key_type: None,
+                        ordinal_position: 3,
+                    },
                 ],
             }],
         }
@@ -723,6 +844,43 @@ mod tests {
 
         assert_eq!(selector.len(), 1);
         assert_eq!(selector.get("id"), Some(&Value::String("10".to_string())));
+    }
+
+    #[test]
+    fn extract_created_id_returns_primary_key_value_when_present() {
+        let values = BTreeMap::from([("id".to_string(), json!(1234))]);
+        let api_spec = build_api_spec();
+        let table_columns = &api_spec.table_endpoints[0].columns;
+
+        let created_id = extract_created_id_from_insert_values(table_columns, &values);
+
+        assert_eq!(created_id, Some(1234));
+    }
+
+    #[test]
+    fn extract_created_id_returns_none_when_primary_key_is_not_numeric() {
+        let values = BTreeMap::from([("id".to_string(), json!("abc"))]);
+        let api_spec = build_api_spec();
+        let table_columns = &api_spec.table_endpoints[0].columns;
+
+        let created_id = extract_created_id_from_insert_values(table_columns, &values);
+
+        assert_eq!(created_id, None);
+    }
+
+    #[test]
+    fn extract_created_id_returns_none_when_multiple_primary_keys_exist() {
+        let values = BTreeMap::from([
+            ("id".to_string(), json!(1)),
+            ("name".to_string(), json!("sample")),
+        ]);
+        let mut api_spec = build_api_spec();
+        api_spec.table_endpoints[0].columns[1].key_type = Some("PRI".to_string());
+        let table_columns = &api_spec.table_endpoints[0].columns;
+
+        let created_id = extract_created_id_from_insert_values(table_columns, &values);
+
+        assert_eq!(created_id, None);
     }
 
     #[test]
@@ -778,6 +936,74 @@ mod tests {
     }
 
     #[test]
+    fn validate_post_request_accepts_nested_json_values_for_json_column() {
+        let api_spec = build_api_spec();
+        let request = TablePostRequest {
+            schema_name: Some("ifs_reference_data".to_string()),
+            table_name: Some("sample_table".to_string()),
+            selector: BTreeMap::from([("id".to_string(), json!(10))]),
+            search_mode: SearchMode::And,
+            options: QueryOptions::default(),
+            values: Some(BTreeMap::from([(
+                "payload".to_string(),
+                json!({
+                    "tags": ["a", "b"],
+                    "nested": { "enabled": true, "count": 2 }
+                }),
+            )])),
+        };
+
+        validate_post_request(&api_spec, "ifs_reference_data", "sample_table", &request)
+            .expect("nested JSON value should pass for json column");
+    }
+
+    #[test]
+    fn validate_post_request_rejects_nested_json_values_for_non_json_column() {
+        let api_spec = build_api_spec();
+        let request = TablePostRequest {
+            schema_name: Some("ifs_reference_data".to_string()),
+            table_name: Some("sample_table".to_string()),
+            selector: BTreeMap::from([("id".to_string(), json!(10))]),
+            search_mode: SearchMode::And,
+            options: QueryOptions::default(),
+            values: Some(BTreeMap::from([("name".to_string(), json!({ "x": 1 }))])),
+        };
+
+        let error =
+            validate_post_request(&api_spec, "ifs_reference_data", "sample_table", &request)
+                .expect_err("nested JSON value should fail for non-json column");
+
+        assert!(matches!(
+            error,
+            TableApiError::InvalidRequest(message)
+            if message.contains("data_type is json")
+        ));
+    }
+
+    #[test]
+    fn validate_post_request_rejects_nested_json_selector() {
+        let api_spec = build_api_spec();
+        let request = TablePostRequest {
+            schema_name: Some("ifs_reference_data".to_string()),
+            table_name: Some("sample_table".to_string()),
+            selector: BTreeMap::from([("payload".to_string(), json!({ "x": 1 }))]),
+            search_mode: SearchMode::And,
+            options: QueryOptions::default(),
+            values: Some(BTreeMap::from([("name".to_string(), json!("updated"))])),
+        };
+
+        let error =
+            validate_post_request(&api_spec, "ifs_reference_data", "sample_table", &request)
+                .expect_err("selector should only accept scalar values");
+
+        assert!(matches!(
+            error,
+            TableApiError::InvalidRequest(message)
+            if message.contains("supports only string, number, bool, or null values")
+        ));
+    }
+
+    #[test]
     fn validate_post_request_rejects_table_in_wrong_schema() {
         let api_spec = build_api_spec();
         let request = TablePostRequest {
@@ -807,7 +1033,9 @@ mod tests {
         let error = find_table_endpoint_spec(&api_spec, "ifs_reference_data", "missing_table")
             .expect_err("undiscoverable table should be rejected");
 
-        assert!(matches!(error, TableApiError::InvalidRequest(message) if message.contains("allowlisted but was not found in information_schema")));
+        assert!(
+            matches!(error, TableApiError::InvalidRequest(message) if message.contains("allowlisted but was not found in information_schema"))
+        );
     }
 
     #[test]

@@ -61,7 +61,7 @@ pub async fn build_api_spec(
                 "利用可能スキーマは allowlist で制御されます: {}",
                 allowed_schemas.join(", ")
             ),
-            "利用可能テーブルは `PROJECT_HUB_ALLOWED_TABLES`、未設定時は `sql/*.sql` の DDL から決定します。"
+            "利用可能テーブルは `PROJECT_HUB_ALLOWED_TABLES`、未設定時は `information_schema.tables` から許可スキーマ内の全テーブルを取得します。"
                 .to_string(),
         ],
         allowed_schemas: allowed_schemas.to_vec(),
@@ -207,7 +207,7 @@ pub async fn build_api_spec(
                     name: "values".to_string(),
                     required: false,
                     data_type: "object".to_string(),
-                    description: "POST /update 用の更新値です。POST /read では指定できません。"
+                    description: "POST /update 用の更新値です。JSON 列は配列/オブジェクト（ネスト JSON）を受け付け、それ以外の列は scalar 値のみ受け付けます。POST /read では指定できません。"
                         .to_string(),
                 },
             ],

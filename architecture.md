@@ -25,3 +25,11 @@
 - 読み取り系 SQL は `JSON_OBJECT(...)` を使って行単位の JSON を生成し、そのまま API レスポンスへ返す。
 - upsert 系 SQL は完全修飾名 ``schema.table`` を使って実行する。
 - `/manual` と `/api/spec` は、許可スキーマ一覧とスキーマ名付きのテーブル一覧を表示する。
+- PROJECT_HUB_ALLOWED_TABLES is optional; when unset, allowlisted tables are resolved from information_schema.tables (BASE TABLE only) within PROJECT_HUB_ALLOWED_SCHEMAS.
+
+## 2026-06-16 nested JSON upsert design
+
+- `validate_post_request` now checks `values` per column data type. Array/object values are accepted only when the target column has `data_type = json`.
+- `selector` validation remains scalar-only to keep the existing WHERE-clause behavior and avoid changing search semantics.
+- UPDATE/INSERT value binding now serializes JSON-column values and writes them via `CAST(? AS JSON)`.
+- `post_update_table` resolves table columns once and passes them to `upsert_table_row` so SQL generation can decide whether each field is a JSON column.
